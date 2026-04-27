@@ -1,7 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import JSZip from "jszip";
 
-// ── Storage helpers (localStorage) ──────────────────────────────
 const lsGet = (k) => {
   try {
     return localStorage.getItem(k);
@@ -14,6 +13,61 @@ const lsSet = (k, v) => {
     localStorage.setItem(k, v);
   } catch (e) {}
 };
+
+// ── Parse .docx using JSZip ──────────────────────────────────────
+async function parseDocxFile(file) {
+  const ab = await file.arrayBuffer();
+  const zip = await JSZip.loadAsync(ab);
+  const xmlFile = zip.file("word/document.xml");
+  if (!xmlFile) throw new Error("Not a valid .docx file");
+  const xmlStr = await xmlFile.async("string");
+
+  const paraRegex = /<w:p[ >][\s\S]*?<\/w:p>/g;
+  const styleRegex = /<w:pStyle w:val="([^"]+)"/;
+  const textRegex = /<w:t[^>]*>([^<]*)<\/w:t>/g;
+
+  const sections = [];
+  let currentSection = null;
+  const paras = xmlStr.match(paraRegex) || [];
+
+  for (const para of paras) {
+    const styleMatch = para.match(styleRegex);
+    const style = styleMatch ? styleMatch[1] : "";
+    let text = "",
+      m;
+    while ((m = textRegex.exec(para)) !== null) text += m[1];
+    textRegex.lastIndex = 0;
+    text = text.trim();
+    if (!text) continue;
+
+    const isHeading = /heading|title/i.test(style) && style !== "Normal";
+    if (isHeading) {
+      currentSection = { heading: text, paragraphs: [] };
+      sections.push(currentSection);
+    } else if (text.length > 30) {
+      if (!currentSection) {
+        currentSection = { heading: "Introduction", paragraphs: [] };
+        sections.push(currentSection);
+      }
+      currentSection.paragraphs.push(text);
+    }
+  }
+  return sections.filter((s) => s.paragraphs.length > 0);
+}
+
+function fuzzyMatchSection(heading, sectionsOrder) {
+  const h = heading.toLowerCase();
+  for (const key of sectionsOrder) {
+    const words = key
+      .toLowerCase()
+      .replace(/[§\d]/g, "")
+      .trim()
+      .split(/\s+/)
+      .filter((w) => w.length > 3);
+    if (words.some((w) => h.includes(w))) return key;
+  }
+  return null;
+}
 
 // ── Keywords ────────────────────────────────────────────────────
 const LENS_KEYWORDS = {
@@ -191,7 +245,6 @@ const LENS_LABELS = {
   political: "Political",
 };
 
-// ── Section claims (for annotation engine) ──────────────────────
 const SECTION_CLAIMS = {
   "§1 Grouping": [
     '"Historically, organizations have used three basic forms or ideal types of grouping: functional structure, divisional structure, or matrix structure."',
@@ -225,7 +278,7 @@ const SECTION_CLAIMS = {
     '"Microwork platforms like Amazon Mechanical Turk focus on relatively simple, repetitive tasks."',
   ],
   "Meaning & Symbols": [
-    '"Culture provides a template on which meanings are read and actions are based." (Van Maanen)',
+    '"Culture provides a template on which meanings are read and actions are based."',
     '"Symbols are vehicles for meaning... decoding what a symbol means to a specific group is what cultural analysis is all about."',
     '"The same symbol can have different meanings for different groups within a single organization."',
   ],
@@ -236,24 +289,23 @@ const SECTION_CLAIMS = {
   Identity: [
     '"Work is a key source of identity for people, and scholars have shown how the workplace is an identity workspace for many workers."',
     '"Changes in work that may seem minor for outsiders can deeply affect the identities of those performing the work."',
-    '"Workers in service industries face emotional labor demands that create a complicated relationship between work identity and identity outside of work."',
   ],
   Subcultures: [
     '"Subcultures are present in every organization... groups of people who share common identities based on characteristics that often transcend their organizationally prescribed roles."',
-    '"Engineers and marketers within the same company often have distinctive subcultures, which emerge from their occupational interests and educational backgrounds."',
+    '"Engineers and marketers within the same company often have distinctive subcultures."',
   ],
   "Cross-Cultural Dynamics": [
     '"Despite attempts to leverage communication technologies to keep workers connected, subcultures often form in different locations."',
-    '"Research suggests that having team members meet in person, giving them access to informal tools, and building a shared team identity can help."',
+    '"Research suggests that having team members meet in person and building a shared team identity can help."',
   ],
   "Culture, Control & Motivation": [
-    '"Managers often attempt to increase worker motivation by providing socialization and symbols that reinforce the values they hope that employees will internalize."',
+    '"Managers often attempt to increase worker motivation by providing socialization and symbols that reinforce the values they hope employees will internalize."',
     '"Maintaining observability of workers may counterintuitively reduce their performance — creating a transparency paradox." (cites Bernstein 2012)',
     '"The attempt to loosen bureaucratic control ended up tightening the iron cage through a system of peer-based control." (cites Barker 1993)',
   ],
   "Future of Culture": [
-    '"A host of changes, many technological, have given rise to a gig economy, a market system in which individuals and organizations contract with independent workers for short-term engagements."',
-    '"Workers may experience algorithmic cruelty: hypervigilance despite claims of flexibility, isolation despite claims of autonomy, and not getting paid when technical failure is characterized as malfeasance."',
+    '"A host of changes, many technological, have given rise to a gig economy."',
+    '"Workers may experience algorithmic cruelty: hypervigilance despite claims of flexibility, isolation despite claims of autonomy." (Gray & Suri 2019)',
   ],
   "Positional Power": [
     '"Positional power is power stemming from formal hierarchical position... based on control over resource allocation, information flows, performance evaluation, and task assignments."',
@@ -261,8 +313,8 @@ const SECTION_CLAIMS = {
   ],
   "Personal Power": [
     '"Expertise — the mastery of a skill or body of knowledge that is both valued by the organization and relatively scarce — can be a significant source of power."',
-    '"Track record, or past performance, is another source of personal power for both individuals and subunits."',
-    '"Today, we see a similar phenomenon occurring with individuals or subunits involved in data analytics." (paralleling finance department power rise)',
+    '"Track record, or past performance, is another source of personal power."',
+    '"Today, we see a similar phenomenon occurring with individuals or subunits involved in data analytics."',
   ],
   "Network Power": [
     '"Know-who is as important as know-how in any organization."',
@@ -274,20 +326,19 @@ const SECTION_CLAIMS = {
     '"Interests are both complex and dynamic... they change in content and in relative importance over time."',
   ],
   "Building a Network": [
-    '"An effective network extends in three directions: upward to those in higher positions of formal authority, horizontally to those in adjacent units, and downward to those working for you."',
+    '"An effective network extends in three directions: upward, horizontally, and downward."',
     '"It is important to build ties before you need them, to make networking a way of life."',
   ],
   "Using Power & Influence": [
-    '"Those who are effective in organizations engage in stakeholder mapping, understand sources of resistance for each key stakeholder group, and tailor individual and collective influence tactics."',
+    '"Those who are effective in organizations engage in stakeholder mapping, understand sources of resistance, and tailor influence tactics to particular stakeholders."',
   ],
   "Future of Organizational Power": [
-    '"Social media — Web-based technologies that allow users to easily create, share and evaluate content — are having a transformative effect on society."',
-    '"New power is more like a current: made by many, participatory and peer-driven; the goal is not to hoard it but to channel it." (cites Timms & Heimans 2018)',
+    '"Social media are having a transformative effect on society... changing relationships between organizational actors and outside stakeholders."',
+    '"New power is more like a current: made by many, participatory and peer-driven." (cites Timms & Heimans 2018)',
     '"It is unclear whether the introduction of new technologies will facilitate a high degree of organizational or societal change."',
   ],
 };
 
-// ── Reading sections for document editor ────────────────────────
 const READING_SECTIONS_BY_LENS = {
   structural: {
     "§1 Grouping": {
@@ -345,14 +396,14 @@ const READING_SECTIONS_BY_LENS = {
       paragraphs: [
         "Culture provides a template on which meanings are read and actions are based. It is attached to both the material and immaterial, to words and deeds, and it shapes and reflects social and material conditions.",
         "Symbols are vehicles for meaning. Decoding what a given symbol or set of symbols means to a specific group of people is what cultural analysis is all about.",
-        "Within a single organization, the same symbol can have different meanings for different groups. Objects with different meanings for different groups can serve as boundary objects that allow different groups to collaborate on a common task.",
+        "Within a single organization, the same symbol can have different meanings for different groups.",
       ],
     },
     "Habits & History": {
       heading: "Habits and history",
       paragraphs: [
         "Culture emerges slowly and unevenly. It is dependent on what has worked in the past to sustain group endeavors and is consequently built on traditions and the experience of success.",
-        "Even when regulation prohibited trainees working 120-hour weeks, many interns continued to work the long hours willingly — not because they were acquiring important expertise, but because they embraced the surgical iron man identity.",
+        "Even when regulation prohibited trainees working 120-hour weeks, many interns continued to work the long hours willingly — because they embraced the surgical iron man identity.",
       ],
     },
     Identity: {
@@ -360,7 +411,6 @@ const READING_SECTIONS_BY_LENS = {
       paragraphs: [
         "Work is a key source of identity for people, and scholars have shown how the workplace is an identity workspace for many workers.",
         "Because work can be a key area through which individuals derive their identities, changes in work that may seem minor for outsiders can deeply affect the identities of those performing the work.",
-        "Even in service jobs, employees often find ways to exercise discretion over their labors, sometimes in ways that run counter to managerial goals.",
       ],
     },
     Subcultures: {
@@ -368,14 +418,13 @@ const READING_SECTIONS_BY_LENS = {
       paragraphs: [
         "Subcultures are present in every organization — groups of people who share common identities based on characteristics that often transcend their organizationally prescribed roles.",
         "Engineers and marketers within the same company often have distinctive subcultures, which emerge from their occupational interests and educational backgrounds.",
-        "Subcultures can become problematic when organizational work requires that members of different subcultures collaborate with one another and their different cultures prevent them from doing so.",
       ],
     },
     "Cross-Cultural Dynamics": {
       heading: "Cross-cultural dynamics",
       paragraphs: [
         "In today's global economy, it is common for organization members to interact frequently with colleagues from different cultures. Subcultures often form in different locations.",
-        "Research suggests that having team members be able to meet in person, giving them access to informal tools that facilitate spontaneous communication, and building a shared team identity can help members work together across locations.",
+        "Research suggests that having team members be able to meet in person and building a shared team identity can help members work together across locations.",
       ],
     },
     "Culture, Control & Motivation": {
@@ -390,8 +439,7 @@ const READING_SECTIONS_BY_LENS = {
       heading: "The future of organizational culture",
       paragraphs: [
         "A host of changes, many technological, have given rise to a gig economy, a market system in which individuals and organizations contract with independent workers for short-term engagements.",
-        "Workers on these platforms may experience algorithmic cruelty: hypervigilance despite claims of flexibility, isolation despite claims of autonomy, and not getting paid when technical failure is characterized as malfeasance. (Gray & Suri 2019)",
-        "Crowdworkers often collaborate to fulfill technical and social needs, recreating the social connections and support often associated with brick-and-mortar work environments.",
+        "Workers on these platforms may experience algorithmic cruelty: hypervigilance despite claims of flexibility, isolation despite claims of autonomy. (Gray & Suri 2019)",
       ],
     },
   },
@@ -424,21 +472,20 @@ const READING_SECTIONS_BY_LENS = {
       paragraphs: [
         "The political perspective broadens the scope of interests beyond what can be calculated in economic terms to include a variety of interests such as autonomy and status that are difficult to reduce to economic terms.",
         "Interests are both complex and dynamic: that is, they change in content and in relative importance over time and as context changes.",
-        "Interests may be latent: that is, individuals may not realize they have a certain stakeholder interest until it is evoked by circumstances.",
       ],
     },
     "Building a Network": {
       heading: "Building a network",
       paragraphs: [
         "An effective network extends in three directions: upward to those in higher positions of formal authority, horizontally to those in adjacent units, and downward to those engaged in tasks that have important consequences for your own work.",
-        "It is important to build ties before you need them, to make networking a way of life. We tend to build ties with people who are located close to us geographically or who are similar to us — but these ties are often less useful.",
+        "It is important to build ties before you need them, to make networking a way of life.",
       ],
     },
     "Using Power & Influence": {
       heading: "Using power and influence",
       paragraphs: [
         "Those who are effective in organizations engage in stakeholder mapping, understand sources of resistance for each key stakeholder group, and tailor individual and collective influence tactics to particular stakeholders.",
-        "Stakeholder mapping is a key tactic for helping you identify the interests of those who will be affected by your planned change and how salient those interests are for them.",
+        "Stakeholder mapping is a key tactic for helping you identify the interests of those who will be affected by your planned change.",
       ],
     },
     "Future of Organizational Power": {
@@ -538,7 +585,6 @@ const TYPE_TX = {
   "Outdated flag": "#791F1F",
 };
 
-// ── Utilities ────────────────────────────────────────────────────
 function normTitle(t) {
   return (t || "")
     .toLowerCase()
@@ -589,14 +635,19 @@ function xIns(t, id, fnId, date) {
   )}</w:t></w:r>${fn}</w:ins></w:p>`;
 }
 
-// ── Word export ──────────────────────────────────────────────────
 const CT_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/><Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/></Types>`;
 const PKG_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
 const DOC_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/></Relationships>`;
 const SETTINGS_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:trackChanges/></w:settings>`;
 const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:spacing w:after="160"/></w:pPr><w:rPr><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:rPr><w:b/><w:sz w:val="52"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Subtitle"><w:name w:val="Subtitle"/><w:pPr><w:spacing w:after="320"/></w:pPr><w:rPr><w:color w:val="595959"/><w:sz w:val="26"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:pPr><w:spacing w:before="480" w:after="120"/></w:pPr><w:rPr><w:b/><w:sz w:val="36"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="FootnoteText"><w:name w:val="footnote text"/><w:pPr><w:spacing w:after="0"/></w:pPr><w:rPr><w:sz w:val="20"/></w:rPr></w:style><w:style w:type="character" w:styleId="FootnoteReference"><w:name w:val="footnote reference"/><w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style></w:styles>`;
 
-function buildDocXml(annotated, sectionsOrder, readingSections, lensLabel) {
+function buildDocXml(
+  annotated,
+  sectionsOrder,
+  readingSections,
+  lensLabel,
+  uploadedDoc
+) {
   const date = new Date().toISOString().replace(/\.\d{3}/, "");
   const bySection = {};
   sectionsOrder.forEach((s) => {
@@ -612,19 +663,49 @@ function buildDocXml(annotated, sectionsOrder, readingSections, lensLabel) {
     "Proposed updates — " + new Date().toLocaleDateString(),
     "Subtitle"
   );
-  for (const sec of sectionsOrder) {
-    const sd = readingSections[sec];
-    if (!sd) continue;
-    body += xPara(sd.heading, "Heading1");
-    sd.paragraphs.forEach((t) => {
-      body += xPara(t, "Normal");
-    });
-    (bySection[sec] || []).forEach((p) => {
-      body += xIns(p.annotation?.annotation || "", id++, p.fnId, date);
-    });
+
+  if (uploadedDoc && uploadedDoc.sections && uploadedDoc.sections.length > 0) {
+    // Use uploaded document content
+    for (const sec of uploadedDoc.sections) {
+      body += xPara(sec.heading, "Heading1");
+      sec.paragraphs.forEach((t) => {
+        body += xPara(t, "Normal");
+      });
+      // Try to match this uploaded section to a section key and insert annotations
+      const matchedKey = fuzzyMatchSection(sec.heading, sectionsOrder);
+      if (matchedKey && bySection[matchedKey]) {
+        bySection[matchedKey].forEach((p) => {
+          body += xIns(p.annotation?.annotation || "", id++, p.fnId, date);
+        });
+        bySection[matchedKey] = []; // mark as inserted
+      }
+    }
+    // Insert any remaining annotations that didn't match
+    for (const sec of sectionsOrder) {
+      if (bySection[sec] && bySection[sec].length > 0) {
+        body += xPara(`Additional updates for ${sec}`, "Heading1");
+        bySection[sec].forEach((p) => {
+          body += xIns(p.annotation?.annotation || "", id++, p.fnId, date);
+        });
+      }
+    }
+  } else {
+    // Fall back to hardcoded sections
+    for (const sec of sectionsOrder) {
+      const sd = readingSections[sec];
+      if (!sd) continue;
+      body += xPara(sd.heading, "Heading1");
+      sd.paragraphs.forEach((t) => {
+        body += xPara(t, "Normal");
+      });
+      (bySection[sec] || []).forEach((p) => {
+        body += xIns(p.annotation?.annotation || "", id++, p.fnId, date);
+      });
+    }
   }
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${body}<w:sectPr/></w:body></w:document>`;
 }
+
 function buildFootnotesXml(annotated) {
   let fns = `<w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote><w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>`;
   annotated.forEach((p, i) => {
@@ -639,18 +720,26 @@ function buildFootnotesXml(annotated) {
   });
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">${fns}</w:footnotes>`;
 }
+
 async function generateDocx(
   annotated,
   sectionsOrder,
   readingSections,
-  lensLabel
+  lensLabel,
+  uploadedDoc
 ) {
   const zip = new JSZip();
   zip.file("[Content_Types].xml", CT_XML);
   zip.file("_rels/.rels", PKG_RELS);
   zip.file(
     "word/document.xml",
-    buildDocXml(annotated, sectionsOrder, readingSections, lensLabel)
+    buildDocXml(
+      annotated,
+      sectionsOrder,
+      readingSections,
+      lensLabel,
+      uploadedDoc
+    )
   );
   zip.file("word/_rels/document.xml.rels", DOC_RELS);
   zip.file("word/styles.xml", STYLES_XML);
@@ -671,7 +760,6 @@ async function generateDocx(
   URL.revokeObjectURL(url);
 }
 
-// ── API calls ────────────────────────────────────────────────────
 async function claudeCall(prompt, useSearch = false, apiKey = "") {
   const body = {
     model: "claude-sonnet-4-20250514",
@@ -755,15 +843,10 @@ const defaultFromDate = () => {
   return d.toISOString().split("T")[0];
 };
 
-// ── App ──────────────────────────────────────────────────────────
 export default function App() {
   const [apiKey, setApiKey] = useState("");
   const [showApiInput, setShowApiInput] = useState(false);
   const [activeLens, setActiveLens] = useState("structural");
-  const KEYWORDS = LENS_KEYWORDS[activeLens];
-  const SECTIONS_ORDER = SECTIONS_ORDER_BY_LENS[activeLens];
-  const READING_SECTIONS = READING_SECTIONS_BY_LENS[activeLens];
-
   const [results, setResults] = useState([]);
   const [scanning, setScanning] = useState(false);
   const [annotatingAll, setAnnotatingAll] = useState(false);
@@ -787,8 +870,15 @@ export default function App() {
   const [editingComment, setEditingComment] = useState(null);
   const [editCommentText, setEditCommentText] = useState({});
   const [exporting, setExporting] = useState(false);
+  const [uploadedDocs, setUploadedDocs] = useState({});
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
 
-  // Load from localStorage on mount
+  const KEYWORDS = LENS_KEYWORDS[activeLens];
+  const SECTIONS_ORDER = SECTIONS_ORDER_BY_LENS[activeLens];
+  const READING_SECTIONS = READING_SECTIONS_BY_LENS[activeLens];
+  const uploadedDoc = uploadedDocs[activeLens] || null;
+
   useEffect(() => {
     const k = lsGet("op_apikey");
     if (k) setApiKey(k);
@@ -800,9 +890,19 @@ export default function App() {
     if (d) setLastScan(d);
     const iso = lsGet("op_lastscaniso");
     if (iso) setLastScanISO(iso);
+    // Load uploaded docs for all lenses
+    const docs = {};
+    for (const lens of Object.keys(LENS_LABELS)) {
+      const stored = lsGet(`op_uploaded_${lens}`);
+      if (stored) {
+        try {
+          docs[lens] = JSON.parse(stored);
+        } catch (e) {}
+      }
+    }
+    setUploadedDocs(docs);
   }, []);
 
-  // Load results when lens changes
   useEffect(() => {
     const r = lsGet(`op_results_${activeLens}`);
     setResults(r ? JSON.parse(r) : []);
@@ -862,6 +962,61 @@ export default function App() {
     },
     [persist]
   );
+  const reannotatePaper = useCallback(
+    async (id) => {
+      if (!apiKey) {
+        setShowApiInput(true);
+        return;
+      }
+      const paper = results.find((p) => p.id === id);
+      if (!paper) return;
+      setResults((prev) =>
+        prev.map((p) =>
+          p.id === id ? { ...p, annotating: true, annotation: null } : p
+        )
+      );
+      try {
+        const anno = await annotatePaper(paper, apiKey);
+        setResults((prev) => {
+          const u = prev.map((p) =>
+            p.id === id ? { ...p, annotation: anno, annotating: false } : p
+          );
+          persist(u);
+          return u;
+        });
+      } catch (e) {
+        setResults((prev) => {
+          const u = prev.map((p) =>
+            p.id === id
+              ? {
+                  ...p,
+                  annotating: false,
+                  annotation: {
+                    claim: "Error",
+                    type: "Error",
+                    annotation: `Error: ${e.message}`,
+                    footnote: "",
+                  },
+                }
+              : p
+          );
+          persist(u);
+          return u;
+        });
+      }
+    },
+    [apiKey, results, persist]
+  );
+  const clearResults = useCallback(() => {
+    if (
+      !window.confirm("Clear all scan results and annotations for this lens?")
+    )
+      return;
+    setResults([]);
+    setSelectedIds([]);
+    setView("queue");
+    lsSet(`op_results_${activeLens}`, "");
+  }, [activeLens]);
   const saveCommentEdit = useCallback(
     (id) => {
       setResults((prev) => {
@@ -883,6 +1038,43 @@ export default function App() {
     },
     [editCommentText, persist]
   );
+
+  const handleUpload = useCallback(
+    async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (!file.name.endsWith(".docx")) {
+        alert("Please upload a .docx file.");
+        return;
+      }
+      setUploading(true);
+      try {
+        const sections = await parseDocxFile(file);
+        const doc = {
+          filename: file.name,
+          lens: activeLens,
+          sections,
+          uploadedAt: new Date().toLocaleString(),
+        };
+        const newDocs = { ...uploadedDocs, [activeLens]: doc };
+        setUploadedDocs(newDocs);
+        lsSet(`op_uploaded_${activeLens}`, JSON.stringify(doc));
+      } catch (err) {
+        alert("Could not read document: " + err.message);
+      } finally {
+        setUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+    },
+    [activeLens, uploadedDocs]
+  );
+
+  const removeUpload = useCallback(() => {
+    const newDocs = { ...uploadedDocs };
+    delete newDocs[activeLens];
+    setUploadedDocs(newDocs);
+    lsSet(`op_uploaded_${activeLens}`, "");
+  }, [activeLens, uploadedDocs]);
 
   const fromYear = parseInt((fromDate || "2022").split("-")[0]);
   const currentYear = new Date().getFullYear();
@@ -927,7 +1119,7 @@ export default function App() {
       } catch (e) {
         errs = [...errs, { kw: kw.kw, err: e.message }];
       }
-      await new Promise((r) => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 2000)); // 2s delay to avoid rate limiting
     }
     const seen = new Set(),
       deduped = [];
@@ -1001,7 +1193,7 @@ export default function App() {
         };
       }
       setResults([...updated]);
-      await new Promise((r) => setTimeout(r, 600));
+      await new Promise((r) => setTimeout(r, 1000));
     }
     setAnnotatingAll(false);
     setAnnoProgress((p) => ({ ...p, done: toAnno.length }));
@@ -1022,14 +1214,15 @@ export default function App() {
         ann,
         SECTIONS_ORDER,
         READING_SECTIONS,
-        LENS_LABELS[activeLens]
+        LENS_LABELS[activeLens],
+        uploadedDoc
       );
     } catch (e) {
       alert("Export failed: " + e.message);
     } finally {
       setExporting(false);
     }
-  }, [results, SECTIONS_ORDER, READING_SECTIONS, activeLens]);
+  }, [results, SECTIONS_ORDER, READING_SECTIONS, activeLens, uploadedDoc]);
 
   const inDoc = results.filter(
     (p) => p.annotation && p.annotation.type !== "Error" && !p.dismissed
@@ -1079,13 +1272,13 @@ export default function App() {
     else setSelectedIds((prev) => [...new Set([...prev, ...unannotatedIds])]);
   };
 
-  const Btn = ({ label, onClick, disabled, bg, color, border }) => (
+  const Btn = ({ label, onClick, disabled, bg, color, border, small }) => (
     <button
       onClick={onClick}
       disabled={disabled}
       style={{
-        padding: "7px 14px",
-        fontSize: 12,
+        padding: small ? "5px 12px" : "7px 14px",
+        fontSize: small ? 11 : 12,
         fontWeight: 500,
         borderRadius: 8,
         border: `0.5px solid ${border || "#D1D5DB"}`,
@@ -1097,6 +1290,20 @@ export default function App() {
       {label}
     </button>
   );
+
+  // Document editor sections — use uploaded if available, else hardcoded
+  const docSections =
+    uploadedDoc && uploadedDoc.sections && uploadedDoc.sections.length > 0
+      ? uploadedDoc.sections.map((s) => ({
+          key: fuzzyMatchSection(s.heading, SECTIONS_ORDER) || s.heading,
+          heading: s.heading,
+          paragraphs: s.paragraphs,
+        }))
+      : SECTIONS_ORDER.map((k) => ({
+          key: k,
+          heading: READING_SECTIONS[k]?.heading || k,
+          paragraphs: READING_SECTIONS[k]?.paragraphs || [],
+        }));
 
   return (
     <div
@@ -1120,14 +1327,7 @@ export default function App() {
         }}
       >
         <div>
-          <h1
-            style={{
-              margin: 0,
-              fontSize: 20,
-              fontWeight: 600,
-              color: "#111827",
-            }}
-          >
+          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>
             OP Literature Assistant
           </h1>
           <p style={{ margin: "3px 0 0", fontSize: 13, color: "#6B7280" }}>
@@ -1159,6 +1359,22 @@ export default function App() {
           >
             {apiKey ? "API key set ✓" : "Set API key"}
           </button>
+          {results.length > 0 && !scanning && (
+            <button
+              onClick={clearResults}
+              style={{
+                fontSize: 12,
+                padding: "5px 12px",
+                borderRadius: 6,
+                border: "0.5px solid #E5E7EB",
+                background: "transparent",
+                color: "#9CA3AF",
+                cursor: "pointer",
+              }}
+            >
+              Clear results
+            </button>
+          )}
           <Btn
             label={scanning ? "Scanning..." : "Run scan"}
             onClick={runScan}
@@ -1178,19 +1394,12 @@ export default function App() {
             borderRadius: 10,
           }}
         >
-          <p
-            style={{
-              fontSize: 13,
-              fontWeight: 500,
-              margin: "0 0 8px",
-              color: "#111827",
-            }}
-          >
+          <p style={{ fontSize: 13, fontWeight: 500, margin: "0 0 4px" }}>
             Anthropic API key
           </p>
           <p style={{ fontSize: 12, color: "#6B7280", margin: "0 0 8px" }}>
-            Your key is stored locally in your browser and never sent anywhere
-            except directly to Anthropic. Get one at console.anthropic.com.
+            Stored locally in your browser only. Get one at
+            console.anthropic.com.
           </p>
           <div style={{ display: "flex", gap: 8 }}>
             <input
@@ -1265,6 +1474,95 @@ export default function App() {
         ))}
       </div>
 
+      {/* Document upload */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          marginBottom: "1rem",
+          padding: "0.75rem 1rem",
+          background: "#F9FAFB",
+          border: "0.5px solid #E5E7EB",
+          borderRadius: 8,
+          flexWrap: "wrap",
+        }}
+      >
+        <span style={{ fontSize: 13, color: "#6B7280", whiteSpace: "nowrap" }}>
+          {LENS_LABELS[activeLens]} reading:
+        </span>
+        {uploadedDoc ? (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flex: 1,
+              flexWrap: "wrap",
+            }}
+          >
+            <span style={{ fontSize: 13, color: "#059669", fontWeight: 500 }}>
+              ✓ {uploadedDoc.filename}
+            </span>
+            <span style={{ fontSize: 12, color: "#9CA3AF" }}>
+              uploaded {uploadedDoc.uploadedAt}
+            </span>
+            <button
+              onClick={removeUpload}
+              style={{
+                fontSize: 11,
+                padding: "3px 8px",
+                borderRadius: 4,
+                border: "0.5px solid #E5E7EB",
+                background: "transparent",
+                color: "#9CA3AF",
+                cursor: "pointer",
+                marginLeft: "auto",
+              }}
+            >
+              Remove
+            </button>
+          </div>
+        ) : (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flex: 1,
+              flexWrap: "wrap",
+            }}
+          >
+            <span style={{ fontSize: 13, color: "#9CA3AF" }}>
+              No document uploaded — using sample text
+            </span>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              style={{
+                fontSize: 12,
+                padding: "5px 12px",
+                borderRadius: 6,
+                border: "0.5px solid #D1D5DB",
+                background: "#FFFFFF",
+                color: uploading ? "#9CA3AF" : "#111827",
+                cursor: uploading ? "not-allowed" : "pointer",
+                marginLeft: "auto",
+              }}
+            >
+              {uploading ? "Parsing..." : "Upload .docx"}
+            </button>
+          </div>
+        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".docx"
+          onChange={handleUpload}
+          style={{ display: "none" }}
+        />
+      </div>
+
       {/* Date picker */}
       <div
         style={{
@@ -1274,8 +1572,8 @@ export default function App() {
           marginBottom: "1rem",
           padding: "0.75rem 1rem",
           background: "#F9FAFB",
-          borderRadius: 8,
           border: "0.5px solid #E5E7EB",
+          borderRadius: 8,
           flexWrap: "wrap",
         }}
       >
@@ -1353,7 +1651,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Progress bars */}
+      {/* Progress */}
       {scanning && (
         <div
           style={{
@@ -1891,10 +2189,27 @@ export default function App() {
               gap: 8,
             }}
           >
-            <p style={{ fontSize: 13, color: "#6B7280", margin: 0 }}>
-              {inDoc.length} annotation{inDoc.length !== 1 ? "s" : ""} — click a
-              marker or comment to review
-            </p>
+            <div>
+              <p style={{ fontSize: 13, color: "#6B7280", margin: 0 }}>
+                {inDoc.length} annotation{inDoc.length !== 1 ? "s" : ""} — click
+                a marker or comment to review
+              </p>
+              {uploadedDoc && (
+                <p
+                  style={{ fontSize: 12, color: "#059669", margin: "2px 0 0" }}
+                >
+                  Using uploaded: {uploadedDoc.filename}
+                </p>
+              )}
+              {!uploadedDoc && (
+                <p
+                  style={{ fontSize: 12, color: "#9CA3AF", margin: "2px 0 0" }}
+                >
+                  Using sample text — upload your .docx above for the full
+                  document
+                </p>
+              )}
+            </div>
             <Btn
               label={exporting ? "Exporting..." : "Export to Word"}
               onClick={handleExport}
@@ -1953,12 +2268,16 @@ export default function App() {
                   padding: "1.5rem",
                 }}
               >
-                {SECTIONS_ORDER.map((sec) => {
-                  const sd = READING_SECTIONS[sec];
-                  if (!sd) return null;
-                  const secAnnos = inDoc.filter((p) => p.section === sec);
+                {docSections.map((sec, idx) => {
+                  const secAnnos = inDoc.filter(
+                    (p) =>
+                      p.section === sec.key ||
+                      (uploadedDoc &&
+                        fuzzyMatchSection(sec.heading, SECTIONS_ORDER) ===
+                          p.section)
+                  );
                   return (
-                    <div key={sec}>
+                    <div key={idx}>
                       <p
                         style={{
                           fontSize: 15,
@@ -1968,9 +2287,9 @@ export default function App() {
                           borderBottom: "0.5px solid #E5E7EB",
                         }}
                       >
-                        {sd.heading}
+                        {sec.heading}
                       </p>
-                      {sd.paragraphs.map((para, i) => (
+                      {sec.paragraphs.slice(0, 3).map((para, i) => (
                         <p
                           key={i}
                           style={{
@@ -1983,6 +2302,17 @@ export default function App() {
                           {para}
                         </p>
                       ))}
+                      {sec.paragraphs.length > 3 && (
+                        <p
+                          style={{
+                            fontSize: 12,
+                            color: "#9CA3AF",
+                            marginBottom: 8,
+                          }}
+                        >
+                          + {sec.paragraphs.length - 3} more paragraphs
+                        </p>
+                      )}
                       {secAnnos.map((p) => (
                         <div key={p.id} style={{ margin: "4px 0 8px" }}>
                           <span
@@ -2011,7 +2341,7 @@ export default function App() {
                               transition: "all 0.15s",
                             }}
                           >
-                            &#x25B6; {p.authors.split(",")[0]} et al. {p.year} —{" "}
+                            ▶ {p.authors.split(",")[0]} et al. {p.year} —{" "}
                             {p.annotation?.type}
                           </span>
                         </div>
@@ -2254,6 +2584,23 @@ export default function App() {
                               }}
                             >
                               Edit
+                            </button>
+                            <button
+                              onClick={() => reannotatePaper(p.id)}
+                              disabled={p.annotating}
+                              style={{
+                                fontSize: 11,
+                                padding: "4px 10px",
+                                borderRadius: 6,
+                                border: "0.5px solid #E5E7EB",
+                                background: "transparent",
+                                color: p.annotating ? "#9CA3AF" : "#6B7280",
+                                cursor: p.annotating
+                                  ? "not-allowed"
+                                  : "pointer",
+                              }}
+                            >
+                              Re-annotate
                             </button>
                             <button
                               onClick={() => removeFromDoc(p.id)}
