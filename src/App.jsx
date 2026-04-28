@@ -69,6 +69,27 @@ function fuzzyMatchSection(heading, sectionsOrder) {
   return null;
 }
 
+// ── Extract claims dynamically from uploaded doc ─────────────────
+// When a doc is uploaded this replaces the hardcoded SECTION_CLAIMS,
+// so annotations stay in sync when Professor Kellogg updates the reading.
+function extractClaimsFromDoc(uploadedDoc, sectionKey, sectionsOrder) {
+  if (!uploadedDoc || !uploadedDoc.sections) return null;
+  for (const sec of uploadedDoc.sections) {
+    const matched = fuzzyMatchSection(sec.heading, sectionsOrder);
+    if (matched === sectionKey) {
+      const claims = [];
+      for (const para of sec.paragraphs) {
+        const sentences = para.match(/[^.!?]+[.!?]+/g) || [para];
+        claims.push(
+          ...sentences.map((s) => s.trim()).filter((s) => s.length > 40)
+        );
+      }
+      return claims.slice(0, 8); // cap at 8 to keep the prompt tight
+    }
+  }
+  return null;
+}
+
 // ── Keywords ────────────────────────────────────────────────────
 const LENS_KEYWORDS = {
   structural: [
@@ -239,12 +260,14 @@ const LENS_KEYWORDS = {
     },
   ],
 };
+
 const LENS_LABELS = {
   structural: "Structural Design",
   cultural: "Cultural",
   political: "Political",
 };
 
+// Fallback claims used when no doc is uploaded
 const SECTION_CLAIMS = {
   "§1 Grouping": [
     '"Historically, organizations have used three basic forms or ideal types of grouping: functional structure, divisional structure, or matrix structure."',
@@ -252,15 +275,15 @@ const SECTION_CLAIMS = {
     '"Career ladders are primarily within functions... there is a tendency for the number of levels of management in each function to expand over time."',
   ],
   "§2 Linking": [
-    '"It is now commonplace for employees to spend significant amounts of their day collaborating using video conferencing technologies." (cites Neeley 2015)',
-    '"Managers are using social media technologies to engage the entire organization in collective conversations." (cites Turco 2016)',
-    '"Liaisons serve as conduits for information and expertise." [no AI coordination roles mentioned]',
-    '"Organizations can also use special groups such as X-teams and task forces to link units." [no AI-augmented teams mentioned]',
+    '"It is now commonplace for employees to spend significant amounts of their day collaborating using video conferencing technologies."',
+    '"Managers are using social media technologies to engage the entire organization in collective conversations."',
+    '"Liaisons serve as conduits for information and expertise."',
+    '"Organizations can also use special groups such as X-teams and task forces to link units."',
   ],
   "§3 Aligning": [
     '"Variable pay should reward performance that is easy to measure, clear to the employee, and controllable by the employee."',
-    '"When performance measures are incomplete, they drive behavior that is not perfectly aligned with organizational goals." (cites Pfeffer & Sutton 2006)',
-    '"Seven key work design factors: clear goals, autonomy, resources, low time pressure, right help, psychological safety, and voice." (cites Amabile & Kramer 2011)',
+    '"When performance measures are incomplete, they drive behavior that is not perfectly aligned with organizational goals."',
+    '"Seven key work design factors: clear goals, autonomy, resources, low time pressure, right help, psychological safety, and voice."',
   ],
   "§4 Redesign": [
     '"The most frequent stimulus to organizational design change is that the current design no longer fits the pressures from the external business environment."',
@@ -268,8 +291,8 @@ const SECTION_CLAIMS = {
     '"A key cost of redesign is the disruption of informal systems and processes."',
   ],
   "§5 Less-hierarchical": [
-    '"Zappos adopted holacracy." / "Medium dropped holacracy, noting it was difficult to coordinate efforts at scale." (2016 examples)',
-    '"Pressure from peers can actually be more stressful for employees than that from bosses." (cites Barker 1993)',
+    '"Zappos adopted holacracy." / "Medium dropped holacracy, noting it was difficult to coordinate efforts at scale."',
+    '"Pressure from peers can actually be more stressful for employees than that from bosses."',
     '"Ambiguity and lack of clarity around progression, compensation and responsibilities led Zappos employees to leave."',
   ],
   "§6 Crowd-centric": [
@@ -300,12 +323,12 @@ const SECTION_CLAIMS = {
   ],
   "Culture, Control & Motivation": [
     '"Managers often attempt to increase worker motivation by providing socialization and symbols that reinforce the values they hope employees will internalize."',
-    '"Maintaining observability of workers may counterintuitively reduce their performance — creating a transparency paradox." (cites Bernstein 2012)',
-    '"The attempt to loosen bureaucratic control ended up tightening the iron cage through a system of peer-based control." (cites Barker 1993)',
+    '"Maintaining observability of workers may counterintuitively reduce their performance — creating a transparency paradox."',
+    '"The attempt to loosen bureaucratic control ended up tightening the iron cage through a system of peer-based control."',
   ],
   "Future of Culture": [
     '"A host of changes, many technological, have given rise to a gig economy."',
-    '"Workers may experience algorithmic cruelty: hypervigilance despite claims of flexibility, isolation despite claims of autonomy." (Gray & Suri 2019)',
+    '"Workers may experience algorithmic cruelty: hypervigilance despite claims of flexibility, isolation despite claims of autonomy."',
   ],
   "Positional Power": [
     '"Positional power is power stemming from formal hierarchical position... based on control over resource allocation, information flows, performance evaluation, and task assignments."',
@@ -334,7 +357,7 @@ const SECTION_CLAIMS = {
   ],
   "Future of Organizational Power": [
     '"Social media are having a transformative effect on society... changing relationships between organizational actors and outside stakeholders."',
-    '"New power is more like a current: made by many, participatory and peer-driven." (cites Timms & Heimans 2018)',
+    '"New power is more like a current: made by many, participatory and peer-driven."',
     '"It is unclear whether the introduction of new technologies will facilitate a high degree of organizational or societal change."',
   ],
 };
@@ -663,24 +686,20 @@ function buildDocXml(
     "Proposed updates — " + new Date().toLocaleDateString(),
     "Subtitle"
   );
-
   if (uploadedDoc && uploadedDoc.sections && uploadedDoc.sections.length > 0) {
-    // Use uploaded document content
     for (const sec of uploadedDoc.sections) {
       body += xPara(sec.heading, "Heading1");
       sec.paragraphs.forEach((t) => {
         body += xPara(t, "Normal");
       });
-      // Try to match this uploaded section to a section key and insert annotations
       const matchedKey = fuzzyMatchSection(sec.heading, sectionsOrder);
       if (matchedKey && bySection[matchedKey]) {
         bySection[matchedKey].forEach((p) => {
           body += xIns(p.annotation?.annotation || "", id++, p.fnId, date);
         });
-        bySection[matchedKey] = []; // mark as inserted
+        bySection[matchedKey] = [];
       }
     }
-    // Insert any remaining annotations that didn't match
     for (const sec of sectionsOrder) {
       if (bySection[sec] && bySection[sec].length > 0) {
         body += xPara(`Additional updates for ${sec}`, "Heading1");
@@ -690,7 +709,6 @@ function buildDocXml(
       }
     }
   } else {
-    // Fall back to hardcoded sections
     for (const sec of sectionsOrder) {
       const sd = readingSections[sec];
       if (!sd) continue;
@@ -760,6 +778,7 @@ async function generateDocx(
   URL.revokeObjectURL(url);
 }
 
+// ── FIX 1: retry on 429 with exponential backoff ─────────────────
 async function claudeCall(prompt, useSearch = false, apiKey = "") {
   const body = {
     model: "claude-sonnet-4-20250514",
@@ -768,23 +787,31 @@ async function claudeCall(prompt, useSearch = false, apiKey = "") {
   };
   if (useSearch)
     body.tools = [{ type: "web_search_20250305", name: "web_search" }];
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`API error ${res.status}`);
-  const d = await res.json();
-  if (d.error) throw new Error(d.error.message);
-  return (d.content || [])
-    .filter((b) => b.type === "text")
-    .map((b) => b.text)
-    .join("");
+
+  const delays = [5000, 15000, 30000]; // retry after 5s, 15s, 30s
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 429 && attempt < delays.length) {
+      await new Promise((r) => setTimeout(r, delays[attempt]));
+      continue;
+    }
+    if (!res.ok) throw new Error(`API error ${res.status}`);
+    const d = await res.json();
+    if (d.error) throw new Error(d.error.message);
+    return (d.content || [])
+      .filter((b) => b.type === "text")
+      .map((b) => b.text)
+      .join("");
+  }
 }
 
 async function searchPapers(
@@ -821,11 +848,16 @@ async function searchPapers(
     }));
 }
 
-async function annotatePaper(paper, apiKey) {
-  const claims = (SECTION_CLAIMS[paper.section] || [])
-    .map((c, i) => `${i + 1}. ${c}`)
-    .join("\n");
-  const prompt = `You are a research assistant updating a 2019 MIT Sloan MBA reading on organizational behavior.\n\nPaper assigned to "${paper.section}":\nTitle: ${paper.title}\nAuthors: ${paper.authors}\nYear: ${paper.year}\nVenue: ${paper.venue}\nAbstract: ${paper.abstract}\n\nClaims in "${paper.section}" that could be updated:\n${claims}\n\nTasks:\n1. Pick the single claim this paper most directly updates\n2. Choose: "New citation", "Updated claim", "New example", or "Outdated flag"\n3. Write a 2-4 sentence draft annotation\n4. Write a Chicago-style footnote\n\nReturn ONLY a JSON object with keys: claim, type, annotation, footnote. No markdown.`;
+// ── FIX 2: use dynamic claims from uploaded doc when available ────
+// dynamicClaims is an array of sentences extracted from the uploaded doc.
+// Falls back to hardcoded SECTION_CLAIMS when no doc is uploaded.
+async function annotatePaper(paper, apiKey, dynamicClaims = null) {
+  const claimsSource = dynamicClaims || SECTION_CLAIMS[paper.section] || [];
+  const claims = claimsSource.map((c, i) => `${i + 1}. ${c}`).join("\n");
+  const claimsNote = dynamicClaims
+    ? "(extracted from the current version of the uploaded reading)"
+    : "(from the 2019 version of the reading)";
+  const prompt = `You are a research assistant updating an MIT Sloan MBA reading on organizational behavior.\n\nPaper assigned to "${paper.section}":\nTitle: ${paper.title}\nAuthors: ${paper.authors}\nYear: ${paper.year}\nVenue: ${paper.venue}\nAbstract: ${paper.abstract}\n\nClaims in "${paper.section}" that could be updated ${claimsNote}:\n${claims}\n\nTasks:\n1. Pick the single claim this paper most directly updates\n2. Choose: "New citation", "Updated claim", "New example", or "Outdated flag"\n3. Write a 2-4 sentence draft annotation\n4. Write a Chicago-style footnote\n\nReturn ONLY a JSON object with keys: claim, type, annotation, footnote. No markdown.`;
   const text = await claudeCall(prompt, false, apiKey);
   const p = extractJSON(text, "object");
   if (!p) throw new Error("Could not parse annotation");
@@ -890,7 +922,6 @@ export default function App() {
     if (d) setLastScan(d);
     const iso = lsGet("op_lastscaniso");
     if (iso) setLastScanISO(iso);
-    // Load uploaded docs for all lenses
     const docs = {};
     for (const lens of Object.keys(LENS_LABELS)) {
       const stored = lsGet(`op_uploaded_${lens}`);
@@ -916,6 +947,7 @@ export default function App() {
     },
     [activeLens]
   );
+
   const moveAnnotation = useCallback(
     (id, section) => {
       setResults((prev) => {
@@ -926,6 +958,7 @@ export default function App() {
     },
     [persist]
   );
+
   const dismissPaper = useCallback(
     (id) => {
       setResults((prev) => {
@@ -938,6 +971,7 @@ export default function App() {
     },
     [persist]
   );
+
   const restorePaper = useCallback(
     (id) => {
       setResults((prev) => {
@@ -950,6 +984,7 @@ export default function App() {
     },
     [persist]
   );
+
   const removeFromDoc = useCallback(
     (id) => {
       setResults((prev) => {
@@ -962,6 +997,7 @@ export default function App() {
     },
     [persist]
   );
+
   const reannotatePaper = useCallback(
     async (id) => {
       if (!apiKey) {
@@ -976,7 +1012,10 @@ export default function App() {
         )
       );
       try {
-        const anno = await annotatePaper(paper, apiKey);
+        const dynamicClaims = uploadedDoc
+          ? extractClaimsFromDoc(uploadedDoc, paper.section, SECTIONS_ORDER)
+          : null;
+        const anno = await annotatePaper(paper, apiKey, dynamicClaims);
         setResults((prev) => {
           const u = prev.map((p) =>
             p.id === id ? { ...p, annotation: anno, annotating: false } : p
@@ -1005,8 +1044,9 @@ export default function App() {
         });
       }
     },
-    [apiKey, results, persist]
+    [apiKey, results, persist, uploadedDoc, SECTIONS_ORDER]
   );
+
   const clearResults = useCallback(() => {
     if (
       !window.confirm("Clear all scan results and annotations for this lens?")
@@ -1017,6 +1057,7 @@ export default function App() {
     setView("queue");
     lsSet(`op_results_${activeLens}`, "");
   }, [activeLens]);
+
   const saveCommentEdit = useCallback(
     (id) => {
       setResults((prev) => {
@@ -1119,7 +1160,8 @@ export default function App() {
       } catch (e) {
         errs = [...errs, { kw: kw.kw, err: e.message }];
       }
-      await new Promise((r) => setTimeout(r, 2000)); // 2s delay to avoid rate limiting
+      // FIX 3: increased from 2000ms to 4000ms to reduce rate limit hits
+      await new Promise((r) => setTimeout(r, 4000));
     }
     const seen = new Set(),
       deduped = [];
@@ -1178,7 +1220,11 @@ export default function App() {
       updated[idx] = { ...updated[idx], annotating: true };
       setResults([...updated]);
       try {
-        const anno = await annotatePaper(paper, apiKey);
+        // Use dynamic claims from uploaded doc if available
+        const dynamicClaims = uploadedDoc
+          ? extractClaimsFromDoc(uploadedDoc, paper.section, SECTIONS_ORDER)
+          : null;
+        const anno = await annotatePaper(paper, apiKey, dynamicClaims);
         updated[idx] = { ...updated[idx], annotation: anno, annotating: false };
       } catch (e) {
         updated[idx] = {
@@ -1201,7 +1247,7 @@ export default function App() {
       prev.filter((id) => !toAnno.some((p) => p.id === id))
     );
     persist(updated);
-  }, [apiKey, results, selectedIds, persist]);
+  }, [apiKey, results, selectedIds, persist, uploadedDoc, SECTIONS_ORDER]);
 
   const handleExport = useCallback(async () => {
     const ann = results.filter(
@@ -1227,7 +1273,6 @@ export default function App() {
   const inDoc = results.filter(
     (p) => p.annotation && p.annotation.type !== "Error" && !p.dismissed
   );
-  const dismissed = results.filter((p) => p.dismissed);
   const queuePapers = showDismissed
     ? results.filter((p) => p.dismissed)
     : results.filter((p) => !p.annotation && !p.dismissed);
@@ -1291,7 +1336,6 @@ export default function App() {
     </button>
   );
 
-  // Document editor sections — use uploaded if available, else hardcoded
   const docSections =
     uploadedDoc && uploadedDoc.sections && uploadedDoc.sections.length > 0
       ? uploadedDoc.sections.map((s) => ({
@@ -1507,6 +1551,9 @@ export default function App() {
             <span style={{ fontSize: 12, color: "#9CA3AF" }}>
               uploaded {uploadedDoc.uploadedAt}
             </span>
+            <span style={{ fontSize: 11, color: "#059669" }}>
+              · annotations will use this document's claims
+            </span>
             <button
               onClick={removeUpload}
               style={{
@@ -1651,7 +1698,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Progress */}
+      {/* Scan progress */}
       {scanning && (
         <div
           style={{
@@ -1713,6 +1760,8 @@ export default function App() {
           )}
         </div>
       )}
+
+      {/* Annotation progress */}
       {annotatingAll && (
         <div
           style={{
@@ -1733,6 +1782,7 @@ export default function App() {
           >
             <span style={{ color: "#3C3489", fontWeight: 500 }}>
               Generating annotations
+              {uploadedDoc ? " (using uploaded document)" : ""}
             </span>
             <span style={{ color: "#534AB7" }}>{annoPct}%</span>
           </div>
