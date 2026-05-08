@@ -882,8 +882,9 @@ async function searchSemanticScholar(
   const yearRange = `${fromYear}-${currentYear}`;
   const fields =
     "title,authors,year,venue,abstract,isOpenAccess,openAccessPdf,externalIds";
-  const url = `/api/semantic-scholar?query=${encodeURIComponent(kw)}&year=${yearRange}`
-  ;
+  const url = `/api/semantic-scholar?query=${encodeURIComponent(
+    kw
+  )}&year=${yearRange}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Semantic Scholar ${res.status}`);
   const data = await res.json();
@@ -928,10 +929,12 @@ async function searchSemanticScholar(
 
 // ── CrossRef search (practitioner journals bolt-on) ─────────────
 async function searchCrossRef(kw, section, aiFlag, fromYear, currentYear) {
-  const url = ;
+  const url = `/api/crossref?query=${encodeURIComponent(
+    kw
+  )}&fromYear=${fromYear}&toYear=${currentYear}`;
   const res = await fetch(url, {
     headers: {
-      "User-Agent": "OP-Literature-Assistant (mailto:research@mit.edu)",`/api/crossref?query=${encodeURIComponent(kw)}&fromYear=${fromYear}&toYear=${currentYear}`
+      "User-Agent": "OP-Literature-Assistant (mailto:research@mit.edu)",
     },
   });
   if (!res.ok) throw new Error(`CrossRef ${res.status}`);
