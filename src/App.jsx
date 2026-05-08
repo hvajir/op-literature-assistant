@@ -882,9 +882,8 @@ async function searchSemanticScholar(
   const yearRange = `${fromYear}-${currentYear}`;
   const fields =
     "title,authors,year,venue,abstract,isOpenAccess,openAccessPdf,externalIds";
-  const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(
-    kw
-  )}&fields=${fields}&limit=5&year=${yearRange}`;
+  const url = `/api/semantic-scholar?query=${encodeURIComponent(kw)}&year=${yearRange}`
+  ;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Semantic Scholar ${res.status}`);
   const data = await res.json();
@@ -929,12 +928,10 @@ async function searchSemanticScholar(
 
 // ── CrossRef search (practitioner journals bolt-on) ─────────────
 async function searchCrossRef(kw, section, aiFlag, fromYear, currentYear) {
-  const url = `https://api.crossref.org/works?query=${encodeURIComponent(
-    kw
-  )}&filter=from-pub-date:${fromYear}-01-01,until-pub-date:${currentYear}-12-31&rows=8&select=DOI,title,author,published,container-title,abstract,URL`;
+  const url = ;
   const res = await fetch(url, {
     headers: {
-      "User-Agent": "OP-Literature-Assistant (mailto:research@mit.edu)",
+      "User-Agent": "OP-Literature-Assistant (mailto:research@mit.edu)",`/api/crossref?query=${encodeURIComponent(kw)}&fromYear=${fromYear}&toYear=${currentYear}`
     },
   });
   if (!res.ok) throw new Error(`CrossRef ${res.status}`);
@@ -991,7 +988,7 @@ async function lookupPaperByDOI(input, defaultSection) {
     );
   const doi = doiMatch[0].replace(/[.,;]+$/, "");
   const res = await fetch(
-    `https://api.crossref.org/works/${encodeURIComponent(doi)}`
+    `/api/crossref-lookup?doi=${encodeURIComponent(doi)}`
   );
   if (!res.ok) throw new Error(`Paper not found for DOI: ${doi}`);
   const data = await res.json();
