@@ -21,15 +21,12 @@ async function parseDocxFile(file) {
   const xmlFile = zip.file("word/document.xml");
   if (!xmlFile) throw new Error("Not a valid .docx file");
   const xmlStr = await xmlFile.async("string");
-
   const paraRegex = /<w:p[ >][\s\S]*?<\/w:p>/g;
   const styleRegex = /<w:pStyle w:val="([^"]+)"/;
   const textRegex = /<w:t[^>]*>([^<]*)<\/w:t>/g;
-
   const sections = [];
   let currentSection = null;
   const paras = xmlStr.match(paraRegex) || [];
-
   for (const para of paras) {
     const styleMatch = para.match(styleRegex);
     const style = styleMatch ? styleMatch[1] : "";
@@ -39,7 +36,6 @@ async function parseDocxFile(file) {
     textRegex.lastIndex = 0;
     text = text.trim();
     if (!text) continue;
-
     const isHeading = /heading|title/i.test(style) && style !== "Normal";
     if (isHeading) {
       currentSection = { heading: text, paragraphs: [] };
@@ -53,6 +49,31 @@ async function parseDocxFile(file) {
     }
   }
   return sections.filter((s) => s.paragraphs.length > 0);
+}
+
+// ── Extract text from uploaded PDF using pdf.js ──────────────────
+async function extractPdfText(file) {
+  if (!window.pdfjsLib) {
+    await new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+      s.onload = resolve;
+      s.onerror = () => reject(new Error("Could not load PDF reader"));
+      document.head.appendChild(s);
+    });
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  }
+  const ab = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: ab }).promise;
+  let text = "";
+  for (let i = 1; i <= Math.min(pdf.numPages, 15); i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map((item) => item.str).join(" ") + "\n";
+  }
+  return text.trim().slice(0, 10000);
 }
 
 function fuzzyMatchSection(heading, sectionsOrder) {
@@ -70,8 +91,6 @@ function fuzzyMatchSection(heading, sectionsOrder) {
 }
 
 // ── Extract claims dynamically from uploaded doc ─────────────────
-// When a doc is uploaded this replaces the hardcoded SECTION_CLAIMS,
-// so annotations stay in sync when Professor Kellogg updates the reading.
 function extractClaimsFromDoc(uploadedDoc, sectionKey, sectionsOrder) {
   if (!uploadedDoc || !uploadedDoc.sections) return null;
   for (const sec of uploadedDoc.sections) {
@@ -84,13 +103,22 @@ function extractClaimsFromDoc(uploadedDoc, sectionKey, sectionsOrder) {
           ...sentences.map((s) => s.trim()).filter((s) => s.length > 40)
         );
       }
-      return claims.slice(0, 8); // cap at 8 to keep the prompt tight
+      return claims.slice(0, 8);
     }
   }
   return null;
 }
 
-// ── Keywords ────────────────────────────────────────────────────
+// ── Practitioner journals for CrossRef filtering ─────────────────
+const PRACTITIONER_JOURNALS = [
+  "harvard business review",
+  "sloan management review",
+  "mit sloan management review",
+  "california management review",
+  "hbr",
+];
+
+// ── Keywords — crossRefFlag marks keywords that also search CrossRef ─
 const LENS_KEYWORDS = {
   structural: [
     {
@@ -98,13 +126,23 @@ const LENS_KEYWORDS = {
       section: "§1 Grouping",
       aiFlag: false,
     },
-    { kw: "AI organizational design", section: "§1 Grouping", aiFlag: true },
+    {
+      kw: "AI organizational design",
+      section: "§1 Grouping",
+      aiFlag: true,
+      crossRefFlag: true,
+    },
     {
       kw: "matrix divisional structure",
       section: "§1 Grouping",
       aiFlag: false,
     },
-    { kw: "hybrid work coordination", section: "§2 Linking", aiFlag: false },
+    {
+      kw: "hybrid work coordination",
+      section: "§2 Linking",
+      aiFlag: false,
+      crossRefFlag: true,
+    },
     { kw: "human-AI teaming", section: "§2 Linking", aiFlag: true },
     { kw: "agentic AI coordination", section: "§2 Linking", aiFlag: true },
     {
@@ -123,7 +161,12 @@ const LENS_KEYWORDS = {
       section: "§4 Redesign",
       aiFlag: false,
     },
-    { kw: "AI organizational change", section: "§4 Redesign", aiFlag: true },
+    {
+      kw: "AI organizational change",
+      section: "§4 Redesign",
+      aiFlag: true,
+      crossRefFlag: true,
+    },
     {
       kw: "self-managing organizations",
       section: "§5 Less-hierarchical",
@@ -147,7 +190,12 @@ const LENS_KEYWORDS = {
       section: "Meaning & Symbols",
       aiFlag: false,
     },
-    { kw: "AI work meaning", section: "Meaning & Symbols", aiFlag: true },
+    {
+      kw: "AI work meaning",
+      section: "Meaning & Symbols",
+      aiFlag: true,
+      crossRefFlag: true,
+    },
     {
       kw: "institutional culture change",
       section: "Habits & History",
@@ -182,11 +230,17 @@ const LENS_KEYWORDS = {
       section: "Culture, Control & Motivation",
       aiFlag: true,
     },
-    { kw: "gig economy culture", section: "Future of Culture", aiFlag: false },
+    {
+      kw: "gig economy culture",
+      section: "Future of Culture",
+      aiFlag: false,
+      crossRefFlag: true,
+    },
     {
       kw: "AI platform labor culture",
       section: "Future of Culture",
       aiFlag: true,
+      crossRefFlag: true,
     },
     {
       kw: "crowdwork occupational community",
@@ -200,7 +254,12 @@ const LENS_KEYWORDS = {
       section: "Positional Power",
       aiFlag: false,
     },
-    { kw: "AI decision authority", section: "Positional Power", aiFlag: true },
+    {
+      kw: "AI decision authority",
+      section: "Positional Power",
+      aiFlag: true,
+      crossRefFlag: true,
+    },
     {
       kw: "expertise power organizations",
       section: "Personal Power",
@@ -237,11 +296,13 @@ const LENS_KEYWORDS = {
       kw: "AI power dynamics organizations",
       section: "Using Power & Influence",
       aiFlag: true,
+      crossRefFlag: true,
     },
     {
       kw: "worker voice social media",
       section: "Future of Organizational Power",
       aiFlag: false,
+      crossRefFlag: true,
     },
     {
       kw: "AI new power participatory",
@@ -267,7 +328,6 @@ const LENS_LABELS = {
   political: "Political",
 };
 
-// Fallback claims used when no doc is uploaded
 const SECTION_CLAIMS = {
   "§1 Grouping": [
     '"Historically, organizations have used three basic forms or ideal types of grouping: functional structure, divisional structure, or matrix structure."',
@@ -778,17 +838,14 @@ async function generateDocx(
   URL.revokeObjectURL(url);
 }
 
-// ── FIX 1: retry on 429 with exponential backoff ─────────────────
-async function claudeCall(prompt, useSearch = false, apiKey = "") {
+// ── Claude API call with retry on 429 ───────────────────────────
+async function claudeCall(prompt, apiKey) {
   const body = {
     model: "claude-sonnet-4-20250514",
     max_tokens: 1500,
     messages: [{ role: "user", content: prompt }],
   };
-  if (useSearch)
-    body.tools = [{ type: "web_search_20250305", name: "web_search" }];
-
-  const delays = [5000, 15000, 30000]; // retry after 5s, 15s, 30s
+  const delays = [5000, 15000, 30000];
   for (let attempt = 0; attempt <= delays.length; attempt++) {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -814,51 +871,184 @@ async function claudeCall(prompt, useSearch = false, apiKey = "") {
   }
 }
 
-async function searchPapers(
-  { kw, section, aiFlag },
-  searchYears,
-  searchPromptStr,
-  apiKey
+// ── Semantic Scholar search (primary) ───────────────────────────
+async function searchSemanticScholar(
+  kw,
+  section,
+  aiFlag,
+  fromYear,
+  currentYear
 ) {
-  const prompt = `Find real academic papers ${searchPromptStr} about: "${kw}"\n\nJournals: Administrative Science Quarterly, Academy of Management Journal, Organization Science, Management Science, MIS Quarterly, ILR Review, Work and Occupations, New Technology Work and Employment, SSRN, arXiv.\n\nReturn ONLY a JSON array of up to 4 papers with keys: title, authors (up to 3 last names), year (integer), venue, abstract (2-3 sentences), url (or null), isOpenAccess (boolean).\n\nOnly real papers ${searchPromptStr}. Return fewer rather than fabricating. Response must be only the JSON array.`;
-  const text = await claudeCall(prompt, true, apiKey);
-  const parsed = extractJSON(text, "array");
-  if (!parsed || !Array.isArray(parsed)) return [];
+  const yearRange = `${fromYear}-${currentYear}`;
+  const fields =
+    "title,authors,year,venue,abstract,isOpenAccess,openAccessPdf,externalIds";
+  const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(
+    kw
+  )}&fields=${fields}&limit=5&year=${yearRange}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Semantic Scholar ${res.status}`);
+  const data = await res.json();
   const vL = (v) => String(v || "").toLowerCase();
-  return parsed
-    .filter(
-      (p) => p && p.title && p.authors && searchYears.includes(Number(p.year))
-    )
-    .map((p, i) => ({
-      id: `${normTitle(p.title)}-${i}-${Date.now()}`,
-      title: String(p.title),
-      authors: String(p.authors || ""),
-      year: Number(p.year),
-      venue: String(p.venue || ""),
-      abstract: String(p.abstract || ""),
-      url: p.url || null,
-      isOpenAccess: aiFlag || Boolean(p.isOpenAccess),
-      isPreprint:
-        aiFlag || vL(p.venue).includes("arxiv") || vL(p.venue).includes("ssrn"),
-      keyword: kw,
-      section,
-      aiFlag,
-      annotation: null,
-      dismissed: false,
-    }));
+  return (data.data || [])
+    .filter((p) => p.title && p.year >= fromYear && p.year <= currentYear)
+    .map((p, i) => {
+      const authors = (p.authors || [])
+        .slice(0, 3)
+        .map((a) => {
+          const pts = (a.name || "").split(" ");
+          return pts[pts.length - 1];
+        })
+        .join(", ");
+      const doi = p.externalIds?.DOI;
+      const paperUrl =
+        p.openAccessPdf?.url || (doi ? `https://doi.org/${doi}` : null);
+      const abstract = String(p.abstract || "");
+      return {
+        id: `ss-${normTitle(p.title)}-${i}-${Date.now()}`,
+        title: String(p.title),
+        authors,
+        year: Number(p.year),
+        venue: String(p.venue || ""),
+        abstract,
+        url: paperUrl,
+        isOpenAccess: Boolean(p.isOpenAccess),
+        isPreprint:
+          vL(p.venue).includes("arxiv") || vL(p.venue).includes("ssrn"),
+        keyword: kw,
+        section,
+        aiFlag,
+        annotation: null,
+        dismissed: false,
+        needsPDF: abstract.length < 20,
+        hasPdf: false,
+        source: "semanticscholar",
+      };
+    })
+    .filter((p) => p.title.length > 5);
 }
 
-// ── FIX 2: use dynamic claims from uploaded doc when available ────
-// dynamicClaims is an array of sentences extracted from the uploaded doc.
-// Falls back to hardcoded SECTION_CLAIMS when no doc is uploaded.
-async function annotatePaper(paper, apiKey, dynamicClaims = null) {
+// ── CrossRef search (practitioner journals bolt-on) ─────────────
+async function searchCrossRef(kw, section, aiFlag, fromYear, currentYear) {
+  const url = `https://api.crossref.org/works?query=${encodeURIComponent(
+    kw
+  )}&filter=from-pub-date:${fromYear}-01-01,until-pub-date:${currentYear}-12-31&rows=8&select=DOI,title,author,published,container-title,abstract,URL`;
+  const res = await fetch(url, {
+    headers: {
+      "User-Agent": "OP-Literature-Assistant (mailto:research@mit.edu)",
+    },
+  });
+  if (!res.ok) throw new Error(`CrossRef ${res.status}`);
+  const data = await res.json();
+  return (data.message?.items || [])
+    .filter((item) => {
+      const venue = ((item["container-title"] || [])[0] || "").toLowerCase();
+      return PRACTITIONER_JOURNALS.some((j) => venue.includes(j));
+    })
+    .filter((item) => item.title?.[0])
+    .map((item, i) => {
+      const authors = (item.author || [])
+        .slice(0, 3)
+        .map((a) => a.family || "")
+        .filter(Boolean)
+        .join(", ");
+      const year = item.published?.["date-parts"]?.[0]?.[0] || 0;
+      const venue = (item["container-title"] || [])[0] || "";
+      const doi = item.DOI;
+      const paperUrl = item.URL || (doi ? `https://doi.org/${doi}` : null);
+      const abstract = item.abstract
+        ? item.abstract.replace(/<[^>]*>/g, "").trim()
+        : "";
+      return {
+        id: `cr-${normTitle(item.title[0])}-${i}-${Date.now()}`,
+        title: String(item.title[0]),
+        authors,
+        year: Number(year),
+        venue,
+        abstract,
+        url: paperUrl,
+        isOpenAccess: false,
+        isPreprint: false,
+        keyword: kw,
+        section,
+        aiFlag,
+        annotation: null,
+        dismissed: false,
+        needsPDF: !abstract || abstract.length < 20,
+        hasPdf: false,
+        source: "crossref",
+        doi,
+      };
+    })
+    .filter((p) => p.year >= fromYear && p.title.length > 5);
+}
+
+// ── Manual paper lookup by DOI or doi.org URL ───────────────────
+async function lookupPaperByDOI(input, defaultSection) {
+  const doiMatch = input.trim().match(/10\.\d{4,}[^\s]*/);
+  if (!doiMatch)
+    throw new Error(
+      "No valid DOI found. Paste a DOI (10.xxxx/...) or a doi.org URL."
+    );
+  const doi = doiMatch[0].replace(/[.,;]+$/, "");
+  const res = await fetch(
+    `https://api.crossref.org/works/${encodeURIComponent(doi)}`
+  );
+  if (!res.ok) throw new Error(`Paper not found for DOI: ${doi}`);
+  const data = await res.json();
+  const item = data.message;
+  const authors = (item.author || [])
+    .slice(0, 3)
+    .map((a) => a.family || "")
+    .filter(Boolean)
+    .join(", ");
+  const year =
+    item.published?.["date-parts"]?.[0]?.[0] || new Date().getFullYear();
+  const venue = (item["container-title"] || [])[0] || "";
+  const paperUrl = item.URL || `https://doi.org/${doi}`;
+  const abstract = item.abstract
+    ? item.abstract.replace(/<[^>]*>/g, "").trim()
+    : "";
+  return {
+    id: `manual-${normTitle(item.title?.[0] || doi)}-${Date.now()}`,
+    title: String(item.title?.[0] || doi),
+    authors,
+    year: Number(year),
+    venue,
+    abstract,
+    url: paperUrl,
+    isOpenAccess: false,
+    isPreprint: false,
+    keyword: "manual entry",
+    section: defaultSection,
+    aiFlag: false,
+    annotation: null,
+    dismissed: false,
+    needsPDF: !abstract || abstract.length < 20,
+    hasPdf: false,
+    source: "manual",
+    doi,
+  };
+}
+
+// ── Annotate paper — uses full PDF text if available, else abstract ─
+async function annotatePaper(
+  paper,
+  apiKey,
+  dynamicClaims = null,
+  pdfText = null
+) {
   const claimsSource = dynamicClaims || SECTION_CLAIMS[paper.section] || [];
   const claims = claimsSource.map((c, i) => `${i + 1}. ${c}`).join("\n");
   const claimsNote = dynamicClaims
     ? "(extracted from the current version of the uploaded reading)"
     : "(from the 2019 version of the reading)";
-  const prompt = `You are a research assistant updating an MIT Sloan MBA reading on organizational behavior.\n\nPaper assigned to "${paper.section}":\nTitle: ${paper.title}\nAuthors: ${paper.authors}\nYear: ${paper.year}\nVenue: ${paper.venue}\nAbstract: ${paper.abstract}\n\nClaims in "${paper.section}" that could be updated ${claimsNote}:\n${claims}\n\nTasks:\n1. Pick the single claim this paper most directly updates\n2. Choose: "New citation", "Updated claim", "New example", or "Outdated flag"\n3. Write a 2-4 sentence draft annotation\n4. Write a Chicago-style footnote\n\nReturn ONLY a JSON object with keys: claim, type, annotation, footnote. No markdown.`;
-  const text = await claudeCall(prompt, false, apiKey);
+  const sourceText = pdfText
+    ? `Full article text (first 10,000 characters):\n${pdfText}`
+    : paper.abstract && paper.abstract.length > 20
+    ? `Abstract: ${paper.abstract}`
+    : "Abstract: Not available — annotation based on title, venue, and year only.";
+  const prompt = `You are a research assistant updating an MIT Sloan MBA reading on organizational behavior.\n\nPaper assigned to "${paper.section}":\nTitle: ${paper.title}\nAuthors: ${paper.authors}\nYear: ${paper.year}\nVenue: ${paper.venue}\n${sourceText}\n\nClaims in "${paper.section}" that could be updated ${claimsNote}:\n${claims}\n\nTasks:\n1. Pick the single claim this paper most directly updates\n2. Choose: "New citation", "Updated claim", "New example", or "Outdated flag"\n3. Write a 2-4 sentence draft annotation\n4. Write a Chicago-style footnote\n\nReturn ONLY a JSON object with keys: claim, type, annotation, footnote. No markdown.`;
+  const text = await claudeCall(prompt, apiKey);
   const p = extractJSON(text, "object");
   if (!p) throw new Error("Could not parse annotation");
   return {
@@ -904,7 +1094,17 @@ export default function App() {
   const [exporting, setExporting] = useState(false);
   const [uploadedDocs, setUploadedDocs] = useState({});
   const [uploading, setUploading] = useState(false);
+  // Per-paper PDF state (in-memory only — not persisted)
+  const [paperPdfs, setPaperPdfs] = useState({});
+  const [uploadingPdfForPaper, setUploadingPdfForPaper] = useState(null);
+  // Manual add paper
+  const [showAddPaper, setShowAddPaper] = useState(false);
+  const [addPaperInput, setAddPaperInput] = useState("");
+  const [addingPaper, setAddingPaper] = useState(false);
+  const [addPaperError, setAddPaperError] = useState("");
+
   const fileInputRef = useRef(null);
+  const pdfFileInputRef = useRef(null);
 
   const KEYWORDS = LENS_KEYWORDS[activeLens];
   const SECTIONS_ORDER = SECTIONS_ORDER_BY_LENS[activeLens];
@@ -923,11 +1123,11 @@ export default function App() {
     const iso = lsGet("op_lastscaniso");
     if (iso) setLastScanISO(iso);
     const docs = {};
-    for (const lens of Object.keys(LENS_LABELS)) {
-      const stored = lsGet(`op_uploaded_${lens}`);
+    for (const l of Object.keys(LENS_LABELS)) {
+      const stored = lsGet(`op_uploaded_${l}`);
       if (stored) {
         try {
-          docs[lens] = JSON.parse(stored);
+          docs[l] = JSON.parse(stored);
         } catch (e) {}
       }
     }
@@ -958,7 +1158,6 @@ export default function App() {
     },
     [persist]
   );
-
   const dismissPaper = useCallback(
     (id) => {
       setResults((prev) => {
@@ -971,7 +1170,6 @@ export default function App() {
     },
     [persist]
   );
-
   const restorePaper = useCallback(
     (id) => {
       setResults((prev) => {
@@ -984,7 +1182,6 @@ export default function App() {
     },
     [persist]
   );
-
   const removeFromDoc = useCallback(
     (id) => {
       setResults((prev) => {
@@ -1015,7 +1212,8 @@ export default function App() {
         const dynamicClaims = uploadedDoc
           ? extractClaimsFromDoc(uploadedDoc, paper.section, SECTIONS_ORDER)
           : null;
-        const anno = await annotatePaper(paper, apiKey, dynamicClaims);
+        const pdfText = paperPdfs[id] || null;
+        const anno = await annotatePaper(paper, apiKey, dynamicClaims, pdfText);
         setResults((prev) => {
           const u = prev.map((p) =>
             p.id === id ? { ...p, annotation: anno, annotating: false } : p
@@ -1044,7 +1242,7 @@ export default function App() {
         });
       }
     },
-    [apiKey, results, persist, uploadedDoc, SECTIONS_ORDER]
+    [apiKey, results, persist, uploadedDoc, SECTIONS_ORDER, paperPdfs]
   );
 
   const clearResults = useCallback(() => {
@@ -1055,6 +1253,7 @@ export default function App() {
     setResults([]);
     setSelectedIds([]);
     setView("queue");
+    setPaperPdfs({});
     lsSet(`op_results_${activeLens}`, "");
   }, [activeLens]);
 
@@ -1080,6 +1279,7 @@ export default function App() {
     [editCommentText, persist]
   );
 
+  // ── Doc upload (whole reading) ───────────────────────────────
   const handleUpload = useCallback(
     async (e) => {
       const file = e.target.files[0];
@@ -1117,6 +1317,59 @@ export default function App() {
     lsSet(`op_uploaded_${activeLens}`, "");
   }, [activeLens, uploadedDocs]);
 
+  // ── Per-paper PDF upload ─────────────────────────────────────
+  const handlePaperPdfUpload = useCallback(
+    async (e) => {
+      const file = e.target.files[0];
+      if (!file || !uploadingPdfForPaper) return;
+      try {
+        const text = await extractPdfText(file);
+        setPaperPdfs((prev) => ({ ...prev, [uploadingPdfForPaper]: text }));
+        setResults((prev) => {
+          const u = prev.map((p) =>
+            p.id === uploadingPdfForPaper
+              ? { ...p, needsPDF: false, hasPdf: true }
+              : p
+          );
+          persist(u);
+          return u;
+        });
+      } catch (err) {
+        alert("Could not read PDF: " + err.message);
+      } finally {
+        setUploadingPdfForPaper(null);
+        if (pdfFileInputRef.current) pdfFileInputRef.current.value = "";
+      }
+    },
+    [uploadingPdfForPaper, persist]
+  );
+
+  // ── Manual paper add ─────────────────────────────────────────
+  const handleManualAdd = useCallback(async () => {
+    if (!addPaperInput.trim()) return;
+    setAddingPaper(true);
+    setAddPaperError("");
+    try {
+      const paper = await lookupPaperByDOI(addPaperInput, SECTIONS_ORDER[0]);
+      const exists = results.some(
+        (r) => normTitle(r.title) === normTitle(paper.title)
+      );
+      if (exists) {
+        setAddPaperError("This paper is already in the queue.");
+        return;
+      }
+      const updated = [...results, paper];
+      setResults(updated);
+      persist(updated);
+      setAddPaperInput("");
+      setShowAddPaper(false);
+    } catch (err) {
+      setAddPaperError(err.message);
+    } finally {
+      setAddingPaper(false);
+    }
+  }, [addPaperInput, results, persist, SECTIONS_ORDER]);
+
   const fromYear = parseInt((fromDate || "2022").split("-")[0]);
   const currentYear = new Date().getFullYear();
   const searchYears = Array.from(
@@ -1128,14 +1381,12 @@ export default function App() {
       ? `published in ${fromYear}`
       : `published between ${fromYear} and ${currentYear}`;
 
+  // ── Scan — uses Semantic Scholar + CrossRef, no API key needed ─
   const runScan = useCallback(async () => {
-    if (!apiKey) {
-      setShowApiInput(true);
-      return;
-    }
     setScanning(true);
     setResults([]);
     setSelectedIds([]);
+    setPaperPdfs({});
     setScanProgress({
       done: 0,
       total: KEYWORDS.length,
@@ -1152,16 +1403,29 @@ export default function App() {
         current: `Searching: "${kw.kw}"`,
         errors: errs,
       });
-      try {
-        all = [
-          ...all,
-          ...(await searchPapers(kw, searchYears, searchPromptStr, apiKey)),
-        ];
-      } catch (e) {
-        errs = [...errs, { kw: kw.kw, err: e.message }];
-      }
-      // FIX 3: increased from 2000ms to 4000ms to reduce rate limit hits
-      await new Promise((r) => setTimeout(r, 4000));
+      const [ssResults, crResults] = await Promise.all([
+        searchSemanticScholar(
+          kw.kw,
+          kw.section,
+          kw.aiFlag,
+          fromYear,
+          currentYear
+        ).catch((e) => {
+          errs = [...errs, { kw: kw.kw, err: e.message }];
+          return [];
+        }),
+        kw.crossRefFlag
+          ? searchCrossRef(
+              kw.kw,
+              kw.section,
+              kw.aiFlag,
+              fromYear,
+              currentYear
+            ).catch(() => [])
+          : Promise.resolve([]),
+      ]);
+      all = [...all, ...ssResults, ...crResults];
+      await new Promise((r) => setTimeout(r, 300));
     }
     const seen = new Set(),
       deduped = [];
@@ -1191,16 +1455,9 @@ export default function App() {
     lsSet("op_lastscaniso", iso);
     lsSet("op_fromdate", fromDate);
     lsSet("op_activelens", activeLens);
-  }, [
-    apiKey,
-    fromDate,
-    KEYWORDS,
-    searchYears,
-    searchPromptStr,
-    persist,
-    activeLens,
-  ]);
+  }, [fromDate, KEYWORDS, fromYear, currentYear, persist, activeLens]);
 
+  // ── Annotate selected papers ─────────────────────────────────
   const runAnnotations = useCallback(async () => {
     if (!apiKey) {
       setShowApiInput(true);
@@ -1220,11 +1477,11 @@ export default function App() {
       updated[idx] = { ...updated[idx], annotating: true };
       setResults([...updated]);
       try {
-        // Use dynamic claims from uploaded doc if available
         const dynamicClaims = uploadedDoc
           ? extractClaimsFromDoc(uploadedDoc, paper.section, SECTIONS_ORDER)
           : null;
-        const anno = await annotatePaper(paper, apiKey, dynamicClaims);
+        const pdfText = paperPdfs[paper.id] || null;
+        const anno = await annotatePaper(paper, apiKey, dynamicClaims, pdfText);
         updated[idx] = { ...updated[idx], annotation: anno, annotating: false };
       } catch (e) {
         updated[idx] = {
@@ -1247,7 +1504,15 @@ export default function App() {
       prev.filter((id) => !toAnno.some((p) => p.id === id))
     );
     persist(updated);
-  }, [apiKey, results, selectedIds, persist, uploadedDoc, SECTIONS_ORDER]);
+  }, [
+    apiKey,
+    results,
+    selectedIds,
+    persist,
+    uploadedDoc,
+    SECTIONS_ORDER,
+    paperPdfs,
+  ]);
 
   const handleExport = useCallback(async () => {
     const ann = results.filter(
@@ -1349,6 +1614,14 @@ export default function App() {
           paragraphs: READING_SECTIONS[k]?.paragraphs || [],
         }));
 
+  const sourceBadge = (source) => {
+    if (source === "crossref")
+      return { bg: "#FAEEDA", color: "#633806", label: "CrossRef" };
+    if (source === "manual")
+      return { bg: "#EEEDFE", color: "#3C3489", label: "Manual entry" };
+    return null;
+  };
+
   return (
     <div
       style={{
@@ -1442,8 +1715,8 @@ export default function App() {
             Anthropic API key
           </p>
           <p style={{ fontSize: 12, color: "#6B7280", margin: "0 0 8px" }}>
-            Stored locally in your browser only. Get one at
-            console.anthropic.com.
+            Used for generating annotations only. Scanning uses free public
+            APIs. Get one at console.anthropic.com.
           </p>
           <div style={{ display: "flex", gap: 8 }}>
             <input
@@ -1498,7 +1771,9 @@ export default function App() {
         {Object.entries(LENS_LABELS).map(([key, label]) => (
           <button
             key={key}
-            onClick={() => setActiveLens(key)}
+            onClick={() => {
+              if (!scanning && !annotatingAll) setActiveLens(key);
+            }}
             disabled={scanning || annotatingAll}
             style={{
               fontSize: 13,
@@ -1518,7 +1793,7 @@ export default function App() {
         ))}
       </div>
 
-      {/* Document upload */}
+      {/* Reading doc upload */}
       <div
         style={{
           display: "flex",
@@ -1616,7 +1891,7 @@ export default function App() {
           display: "flex",
           alignItems: "center",
           gap: 10,
-          marginBottom: "1rem",
+          marginBottom: "0.75rem",
           padding: "0.75rem 1rem",
           background: "#F9FAFB",
           border: "0.5px solid #E5E7EB",
@@ -1662,6 +1937,94 @@ export default function App() {
           Searching {searchPromptStr}
         </span>
       </div>
+
+      {/* Manual add paper */}
+      <div style={{ marginBottom: "1rem" }}>
+        <button
+          onClick={() => {
+            setShowAddPaper(!showAddPaper);
+            setAddPaperError("");
+          }}
+          style={{
+            fontSize: 12,
+            padding: "5px 12px",
+            borderRadius: 6,
+            border: "0.5px solid #E5E7EB",
+            background: "transparent",
+            color: "#6B7280",
+            cursor: "pointer",
+          }}
+        >
+          {showAddPaper ? "Cancel" : "+ Add paper by DOI"}
+        </button>
+        {showAddPaper && (
+          <div
+            style={{
+              marginTop: 8,
+              padding: "0.75rem 1rem",
+              background: "#F9FAFB",
+              border: "0.5px solid #E5E7EB",
+              borderRadius: 8,
+            }}
+          >
+            <p style={{ fontSize: 13, color: "#6B7280", margin: "0 0 8px" }}>
+              Paste a DOI or doi.org URL — useful for HBR and Sloan articles you
+              find directly.
+            </p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                value={addPaperInput}
+                onChange={(e) => {
+                  setAddPaperInput(e.target.value);
+                  setAddPaperError("");
+                }}
+                placeholder="e.g. 10.1086/701816 or https://doi.org/..."
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleManualAdd();
+                }}
+                style={{
+                  flex: 1,
+                  fontSize: 13,
+                  padding: "6px 10px",
+                  borderRadius: 6,
+                  border: "0.5px solid #D1D5DB",
+                  background: "#FFFFFF",
+                  color: "#111827",
+                }}
+              />
+              <button
+                onClick={handleManualAdd}
+                disabled={addingPaper || !addPaperInput.trim()}
+                style={{
+                  fontSize: 12,
+                  padding: "6px 14px",
+                  borderRadius: 6,
+                  border: "0.5px solid #D1D5DB",
+                  background: "#FFFFFF",
+                  color: addingPaper ? "#9CA3AF" : "#111827",
+                  cursor: addingPaper ? "not-allowed" : "pointer",
+                }}
+              >
+                {addingPaper ? "Looking up..." : "Add paper"}
+              </button>
+            </div>
+            {addPaperError && (
+              <p style={{ fontSize: 12, color: "#DC2626", margin: "6px 0 0" }}>
+                {addPaperError}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Hidden PDF input for per-paper upload */}
+      <input
+        ref={pdfFileInputRef}
+        type="file"
+        accept=".pdf"
+        onChange={handlePaperPdfUpload}
+        style={{ display: "none" }}
+      />
 
       {/* Tabs */}
       {results.length > 0 && !scanning && (
@@ -1750,7 +2113,7 @@ export default function App() {
           </div>
           <p style={{ fontSize: 12, color: "#9CA3AF", margin: "8px 0 0" }}>
             {scanProgress.done} of {scanProgress.total} keyword searches
-            complete
+            complete · Semantic Scholar + CrossRef
           </p>
           {scanProgress.errors.length > 0 && (
             <p style={{ fontSize: 12, color: "#DC2626", margin: "4px 0 0" }}>
@@ -1858,6 +2221,11 @@ export default function App() {
                   {selectedToAnnotate.length} of {unannotatedIds.length}{" "}
                   selected
                 </span>
+                {!apiKey && (
+                  <span style={{ fontSize: 12, color: "#633806" }}>
+                    Set API key above to generate annotations
+                  </span>
+                )}
                 <div style={{ marginLeft: "auto" }}>
                   <Btn
                     label={
@@ -1950,6 +2318,10 @@ export default function App() {
               </div>
               <p style={{ fontSize: 12, color: "#9CA3AF", margin: "0 0 10px" }}>
                 {filtered.length} paper{filtered.length !== 1 ? "s" : ""} shown
+                · annotations are based on abstracts
+                {Object.keys(paperPdfs).length > 0
+                  ? ` (${Object.keys(paperPdfs).length} with PDF uploaded)`
+                  : ""}
               </p>
             </>
           )}
@@ -1958,6 +2330,8 @@ export default function App() {
             const isExp = expanded[p.id],
               abs = p.abstract || "",
               isSelected = selectedIds.includes(p.id);
+            const badge = sourceBadge(p.source);
+            const hasPdfText = !!paperPdfs[p.id];
             return (
               <div
                 key={p.id}
@@ -2026,6 +2400,19 @@ export default function App() {
                     >
                       {p.section}
                     </span>
+                    {badge && (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          padding: "2px 8px",
+                          borderRadius: 4,
+                          background: badge.bg,
+                          color: badge.color,
+                        }}
+                      >
+                        {badge.label}
+                      </span>
+                    )}
                     {p.isOpenAccess && (
                       <span
                         style={{
@@ -2052,6 +2439,34 @@ export default function App() {
                         }}
                       >
                         Preprint
+                      </span>
+                    )}
+                    {p.needsPDF && !hasPdfText && (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          padding: "2px 8px",
+                          borderRadius: 4,
+                          background: "#FEF9E7",
+                          color: "#633806",
+                          border: "0.5px solid #FAC775",
+                        }}
+                      >
+                        No abstract · upload PDF to annotate
+                      </span>
+                    )}
+                    {hasPdfText && (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          padding: "2px 8px",
+                          borderRadius: 4,
+                          background: "#E1F5EE",
+                          color: "#085041",
+                          border: "0.5px solid #9FE1CB",
+                        }}
+                      >
+                        PDF uploaded ✓
                       </span>
                     )}
                     {p.dismissed && (
@@ -2123,7 +2538,7 @@ export default function App() {
                     {p.authors}
                     {p.venue ? ` · ${p.venue}` : ""}
                   </p>
-                  {abs && (
+                  {abs && abs.length > 20 && (
                     <div style={{ marginBottom: 4 }}>
                       <p
                         style={{
@@ -2156,7 +2571,14 @@ export default function App() {
                       )}
                     </div>
                   )}
-                  <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 6,
+                      marginTop: 6,
+                      flexWrap: "wrap",
+                    }}
+                  >
                     {!p.dismissed && (
                       <button
                         onClick={() => dismissPaper(p.id)}
@@ -2189,6 +2611,25 @@ export default function App() {
                         Restore
                       </button>
                     )}
+                    {!p.dismissed && (
+                      <button
+                        onClick={() => {
+                          setUploadingPdfForPaper(p.id);
+                          pdfFileInputRef.current?.click();
+                        }}
+                        style={{
+                          fontSize: 11,
+                          padding: "3px 10px",
+                          borderRadius: 6,
+                          border: "0.5px solid #E5E7EB",
+                          background: hasPdfText ? "#E1F5EE" : "transparent",
+                          color: hasPdfText ? "#085041" : "#6B7280",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {hasPdfText ? "Replace PDF" : "Upload PDF"}
+                      </button>
+                    )}
                   </div>
                   <p
                     style={{
@@ -2217,9 +2658,12 @@ export default function App() {
               <p style={{ fontSize: 15, fontWeight: 500, margin: "0 0 8px" }}>
                 No scan results yet
               </p>
-              <p style={{ fontSize: 13, color: "#6B7280", margin: 0 }}>
-                Click "Run scan" to search {KEYWORDS.length} keyword queries for
-                the {LENS_LABELS[activeLens]} lens
+              <p style={{ fontSize: 13, color: "#6B7280", margin: "0 0 4px" }}>
+                Click "Run scan" to search {KEYWORDS.length} keywords across
+                Semantic Scholar and CrossRef.
+              </p>
+              <p style={{ fontSize: 12, color: "#9CA3AF", margin: 0 }}>
+                No API key needed to scan — only needed to generate annotations.
               </p>
             </div>
           )}
@@ -2473,6 +2917,19 @@ export default function App() {
                             }}
                           >
                             Preprint
+                          </span>
+                        )}
+                        {paperPdfs[p.id] && (
+                          <span
+                            style={{
+                              fontSize: 10,
+                              padding: "2px 7px",
+                              borderRadius: 4,
+                              background: "#E1F5EE",
+                              color: "#085041",
+                            }}
+                          >
+                            PDF
                           </span>
                         )}
                         {p.year && (
