@@ -35,75 +35,230 @@ function isAiKeyword(kw) {
 // ── Target journals ──────────────────────────────────────────────
 // Applied to non-AI keywords only. AI keywords are unfiltered.
 const TARGET_JOURNALS = [
-  // Professor Kellogg's original list
-  // Professor Kellogg's original list + abbreviations
+  // ── Administrative Science Quarterly ────────────────────────────
   "administrative science quarterly",
+  "adm. sci. q.",
+  "adm sci q",
+  "admin. sci. q.",
+  "admin sci q",
   "asq",
+
+  // ── Academy of Management Journal ───────────────────────────────
   "academy of management journal",
+  "acad. manage. j.",
+  "acad manage j",
+  "acad. manag. j.",
   "amj",
-  "acad. manage. j",
+  "the academy of management journal",
+
+  // ── Academy of Management Review ────────────────────────────────
   "academy of management review",
+  "acad. manage. rev.",
+  "acad manage rev",
   "amr",
+  "the academy of management review",
+
+  // ── Academy of Management Perspectives ──────────────────────────
+  "academy of management perspectives",
+  "acad. manage. perspect.",
+  "acad manage perspect",
+  "amp",
+
+  // ── Organization Science ─────────────────────────────────────────
   "organization science",
-  "organ. sci",
-  "org. sci",
+  "organ. sci.",
+  "organ sci",
+  "org. sci.",
+  "org sci",
+
+  // ── Management Science ───────────────────────────────────────────
   "management science",
-  "manage. sci",
+  "manage. sci.",
+  "manage sci",
+  "manag. sci.",
+  "mgmt. sci.",
   "mgmt sci",
+
+  // ── MIS Quarterly ────────────────────────────────────────────────
   "mis quarterly",
+  "mis q.",
+  "mis q",
   "misq",
+
+  // ── ILR Review ───────────────────────────────────────────────────
   "ilr review",
+  "ilr rev.",
+  "ind. labor relat. rev.",
+  "ind labor relat rev",
+  "industrial and labor relations review",
+
+  // ── Work and Occupations ─────────────────────────────────────────
   "work and occupations",
+  "work occup.",
+  "work occup",
+
+  // ── New Technology Work and Employment ──────────────────────────
   "new technology work and employment",
+  "new technol. work employ.",
+  "new technol work employ",
+
+  // ── Harvard Business Review ──────────────────────────────────────
   "harvard business review",
+  "harv. bus. rev.",
+  "harv bus rev",
   "hbr",
+
+  // ── MIT Sloan Management Review ──────────────────────────────────
   "mit sloan management review",
   "sloan management review",
+  "mit sloan manage. rev.",
+  "sloan manage. rev.",
+  "sloan manag rev",
+
+  // ── California Management Review ─────────────────────────────────
   "california management review",
-  // Second-tier additions + abbreviations
+  "calif. manage. rev.",
+  "calif manage rev",
+  "cmr",
+
+  // ── Journal of Organizational Behavior ──────────────────────────
   "journal of organizational behavior",
-  "j. organ. behav",
+  "j. organ. behav.",
   "j organ behav",
+  "j. org. behav.",
+  "j org behav",
+  "j. organiz. behav.",
+  "job",
+  "the journal of organizational behavior",
+
+  // ── Journal of Applied Psychology ───────────────────────────────
   "journal of applied psychology",
-  "j. appl. psychol",
+  "j. appl. psychol.",
   "j appl psychol",
+  "j. appl. psych.",
+  "the journal of applied psychology",
+
+  // ── Strategic Management Journal ─────────────────────────────────
   "strategic management journal",
-  "strat. manage. j",
+  "strateg. manage. j.",
+  "strateg manage j",
+  "strat. manage. j.",
+  "strat manage j",
   "smj",
+
+  // ── Journal of Management ────────────────────────────────────────
   "journal of management",
   "j. manage.",
+  "j manage",
+  "j. manag.",
+  "the journal of management",
+
+  // ── Journal of Management Studies ────────────────────────────────
   "journal of management studies",
-  "j. manage. stud",
+  "j. manage. stud.",
+  "j manage stud",
+  "j. manag. stud.",
+  "jms",
+  "the journal of management studies",
+
+  // ── Personnel Psychology ─────────────────────────────────────────
   "personnel psychology",
+  "pers. psychol.",
+  "pers psychol",
+
+  // ── Human Relations ──────────────────────────────────────────────
   "human relations",
-  "hum. relat",
+  "hum. relat.",
+  "hum relat",
+
+  // ── British Journal of Industrial Relations ──────────────────────
   "british journal of industrial relations",
+  "br. j. ind. relat.",
+  "br j ind relat",
+  "bjir",
+
+  // ── Journal of Labor Economics ───────────────────────────────────
   "journal of labor economics",
+  "j. labor econ.",
+  "j labor econ",
+
+  // ── Computers in Human Behavior ──────────────────────────────────
   "computers in human behavior",
+  "comput. hum. behav.",
+  "comput hum behav",
+
+  // ── Human Resource Management ────────────────────────────────────
   "human resource management",
+  "hum. resour. manage.",
+  "hum resour manage",
+  "hrm",
+
+  // ── Organizational Behavior and Human Decision Processes ─────────
   "organizational behavior and human decision processes",
+  "organ. behav. hum. decis. process.",
+  "organ behav hum decis process",
   "obhdp",
-  "academy of management perspectives",
+
+  // ── Journal of Occupational and Organizational Psychology ────────
   "journal of occupational and organizational psychology",
-  // Additional relevant journals
+  "j. occup. organ. psychol.",
+  "j occup organ psychol",
+  "joop",
+
+  // ── Information Systems Research ─────────────────────────────────
   "information systems research",
+  "inf. syst. res.",
+  "inf syst res",
   "isr",
+
+  // ── Journal of the Association for Information Systems ───────────
   "journal of the association for information systems",
+  "j. assoc. inf. syst.",
+  "j assoc inf syst",
   "jais",
+
+  // ── Work Employment and Society ──────────────────────────────────
   "work employment and society",
+  "work employ. soc.",
+  "work employ soc",
+
+  // ── Economic and Industrial Democracy ────────────────────────────
   "economic and industrial democracy",
+  "econ. ind. democr.",
+  "econ ind democr",
+
+  // ── Labour Economics ─────────────────────────────────────────────
   "labour economics",
+  "labour econ.",
+  "labour econ",
+
+  // ── Industrial Relations ─────────────────────────────────────────
   "industrial relations",
+  "ind. relat.",
+  "ind relat",
+  "industrial relations: a journal of economy and society",
+
+  // ── Journal of Business and Psychology ───────────────────────────
   "journal of business and psychology",
+  "j. bus. psychol.",
+  "j bus psychol",
+
+  // ── Group and Organization Management ────────────────────────────
   "group and organization management",
+  "group organ. manage.",
+  "group organ manage",
+  "gom",
 ];
 
 function matchesTargetJournal(venue) {
   if (!venue) return false;
-  const v = venue.toLowerCase();
-  return TARGET_JOURNALS.some(
-    (j) => v.includes(j) || j.includes(v.slice(0, 12))
-  );
+  // Normalize: lowercase, strip parenthetical suffixes and trailing punctuation
+  const v = venue
+    .toLowerCase()
+    .replace(/\s*\(.*\)\s*$/, "")
+    .replace(/[.]+\s*$/, "")
+    .trim();
+  return TARGET_JOURNALS.some((j) => v === j || v.startsWith(j + " "));
 }
 
 // ── Off-topic journal blocklist (applied to all keywords) ────────
@@ -197,6 +352,19 @@ function isExcludedJournal(venue) {
 function hasOBTopicSignal(paper) {
   const text = (paper.title + " " + (paper.abstract || "")).toLowerCase();
   return OB_TOPIC_SIGNALS.some((s) => text.includes(s));
+}
+
+function isRelevantAiPaper(paper) {
+  const venue = (paper.venue || "").toLowerCase();
+  const isPreprint =
+    venue.includes("arxiv") ||
+    venue.includes("ssrn") ||
+    venue.includes("preprint") ||
+    venue.includes("working paper");
+  // Must be from a target journal OR a preprint server (AND have OB signals)
+  return (
+    (matchesTargetJournal(paper.venue) || isPreprint) && hasOBTopicSignal(paper)
+  );
 }
 
 // ── Practitioner journals for CrossRef ──────────────────────────
@@ -976,7 +1144,7 @@ async function searchSemanticScholar(kw, section, fromYear, currentYear) {
     .filter((p) => p.title && p.year >= fromYear && p.year <= currentYear)
     .filter((p) => !isExcludedJournal(p.venue))
     .filter((p) =>
-      aiRelated ? hasOBTopicSignal(p) : matchesTargetJournal(p.venue)
+      aiRelated ? isRelevantAiPaper(p) : matchesTargetJournal(p.venue)
     )
     .map((p, i) => {
       const authors = (p.authors || [])
@@ -1183,7 +1351,7 @@ async function searchOpenAlex(kw, section, fromYear, currentYear) {
     .filter((p) => p.title.length > 5)
     .filter((p) => !isExcludedJournal(p.venue))
     .filter((p) =>
-      aiRelated ? hasOBTopicSignal(p) : matchesTargetJournal(p.venue)
+      aiRelated ? isRelevantAiPaper(p) : matchesTargetJournal(p.venue)
     );
 
   // Recency boost for AI keywords — newest papers first
