@@ -36,35 +36,66 @@ function isAiKeyword(kw) {
 // Applied to non-AI keywords only. AI keywords are unfiltered.
 const TARGET_JOURNALS = [
   // Professor Kellogg's original list
+  // Professor Kellogg's original list + abbreviations
   "administrative science quarterly",
+  "asq",
   "academy of management journal",
+  "amj",
+  "acad. manage. j",
   "academy of management review",
+  "amr",
   "organization science",
+  "organ. sci",
+  "org. sci",
   "management science",
+  "manage. sci",
+  "mgmt sci",
   "mis quarterly",
+  "misq",
   "ilr review",
   "work and occupations",
   "new technology work and employment",
   "harvard business review",
+  "hbr",
   "mit sloan management review",
   "sloan management review",
-  "hbr",
   "california management review",
-  // Second-tier additions
+  // Second-tier additions + abbreviations
   "journal of organizational behavior",
+  "j. organ. behav",
+  "j organ behav",
   "journal of applied psychology",
+  "j. appl. psychol",
+  "j appl psychol",
   "strategic management journal",
+  "strat. manage. j",
+  "smj",
   "journal of management",
+  "j. manage.",
   "journal of management studies",
+  "j. manage. stud",
   "personnel psychology",
   "human relations",
+  "hum. relat",
   "british journal of industrial relations",
   "journal of labor economics",
   "computers in human behavior",
   "human resource management",
   "organizational behavior and human decision processes",
+  "obhdp",
   "academy of management perspectives",
   "journal of occupational and organizational psychology",
+  // Additional relevant journals
+  "information systems research",
+  "isr",
+  "journal of the association for information systems",
+  "jais",
+  "work employment and society",
+  "economic and industrial democracy",
+  "labour economics",
+  "industrial relations",
+  "journal of business and psychology",
+  "group and organization management",
 ];
 
 function matchesTargetJournal(venue) {
@@ -986,10 +1017,9 @@ async function searchSemanticScholar(kw, section, fromYear, currentYear) {
       };
     })
     .filter((p) => p.title.length > 5);
+  if (aiRelated) results.sort((a, b) => b.year - a.year);
   return results;
 }
-
-// ── CrossRef — practitioner journals only ───────────────────────
 async function searchCrossRef(kw, section, fromYear, currentYear) {
   const url = `/api/crossref?query=${encodeURIComponent(
     kw
@@ -1086,6 +1116,79 @@ async function lookupPaperByDOI(input, defaultSection) {
     source: "manual",
     doi,
   };
+}
+
+// ── OpenAlex — third source, good OB/management coverage ────────
+function reconstructAbstract(invertedIndex) {
+  if (!invertedIndex) return "";
+  const words = {};
+  for (const [word, positions] of Object.entries(invertedIndex)) {
+    for (const pos of positions) words[pos] = word;
+  }
+  const maxPos = Math.max(...Object.keys(words).map(Number));
+  return Array.from({ length: maxPos + 1 }, (_, i) => words[i] || "")
+    .join(" ")
+    .trim();
+}
+
+async function searchOpenAlex(kw, section, fromYear, currentYear) {
+  const aiRelated = isAiKeyword(kw);
+  const url = `/api/openalex?query=${encodeURIComponent(
+    kw
+  )}&fromYear=${fromYear}&toYear=${currentYear}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`OpenAlex ${res.status}`);
+  const data = await res.json();
+  const results = (data.results || [])
+    .filter(
+      (p) =>
+        p.title &&
+        p.publication_year >= fromYear &&
+        p.publication_year <= currentYear
+    )
+    .map((p, i) => {
+      const authors = (p.authorships || [])
+        .slice(0, 3)
+        .map((a) => {
+          const name = a.author?.display_name || "";
+          const parts = name.split(" ");
+          return parts[parts.length - 1];
+        })
+        .join(", ");
+      const venue = p.primary_location?.source?.display_name || "";
+      const doi = p.doi ? p.doi.replace("https://doi.org/", "") : null;
+      const paperUrl =
+        p.open_access?.oa_url || (doi ? `https://doi.org/${doi}` : null);
+      const abstract = reconstructAbstract(p.abstract_inverted_index);
+      return {
+        id: `oa-${normTitle(p.title)}-${i}-${Date.now()}`,
+        title: String(p.title),
+        authors,
+        year: Number(p.publication_year),
+        venue,
+        abstract,
+        url: paperUrl,
+        isOpenAccess: Boolean(p.open_access?.is_oa),
+        isPreprint: false,
+        keyword: kw,
+        section,
+        isAiRelated: aiRelated,
+        annotation: null,
+        dismissed: false,
+        needsPDF: abstract.length < 20,
+        hasPdf: false,
+        source: "openalex",
+      };
+    })
+    .filter((p) => p.title.length > 5)
+    .filter((p) => !isExcludedJournal(p.venue))
+    .filter((p) =>
+      aiRelated ? hasOBTopicSignal(p) : matchesTargetJournal(p.venue)
+    );
+
+  // Recency boost for AI keywords — newest papers first
+  if (aiRelated) results.sort((a, b) => b.year - a.year);
+  return results;
 }
 
 // ── Annotate paper ───────────────────────────────────────────────
@@ -1455,7 +1558,7 @@ export default function App() {
         current: `Searching: "${kw.kw}"`,
         errors: errs,
       });
-      const [ssResults, crResults] = await Promise.all([
+      const [ssResults, crResults, oaResults] = await Promise.all([
         searchSemanticScholar(kw.kw, kw.section, fromYear, currentYear).catch(
           (e) => {
             errs = [...errs, { kw: kw.kw, err: e.message }];
@@ -1467,8 +1570,11 @@ export default function App() {
               () => []
             )
           : Promise.resolve([]),
+        searchOpenAlex(kw.kw, kw.section, fromYear, currentYear).catch(
+          () => []
+        ),
       ]);
-      all = [...all, ...ssResults, ...crResults];
+      all = [...all, ...ssResults, ...crResults, ...oaResults];
       await new Promise((r) => setTimeout(r, 2000));
     }
     const seen = new Set(),
