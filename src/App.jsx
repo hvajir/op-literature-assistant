@@ -1143,7 +1143,7 @@ async function generateDocx(
 // ── Claude API call with retry on 429 ───────────────────────────
 async function claudeCall(prompt, apiKey) {
   const body = {
-    model: "claude-sonnet-4-20250514",
+    model: "claude-sonnet-4-6",
     max_tokens: 1500,
     messages: [{ role: "user", content: prompt }],
   };
