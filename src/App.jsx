@@ -14,6 +14,76 @@ const lsSet = (k, v) => {
   } catch (e) {}
 };
 
+// ── Derive AI relevance from keyword text ────────────────────────
+// No more hardcoded aiFlag — if the keyword contains these terms
+// it's treated as AI-related and gets unfiltered journal results.
+const AI_TERMS = [
+  "ai ",
+  "ai-",
+  " ai",
+  "artificial intelligence",
+  "algorithmic",
+  "agentic",
+  "generative ai",
+  "human-ai",
+];
+function isAiKeyword(kw) {
+  const lower = kw.toLowerCase();
+  return AI_TERMS.some((t) => lower.includes(t));
+}
+
+// ── Target journals ──────────────────────────────────────────────
+// Applied to non-AI keywords only. AI keywords are unfiltered.
+const TARGET_JOURNALS = [
+  // Professor Kellogg's original list
+  "administrative science quarterly",
+  "academy of management journal",
+  "academy of management review",
+  "organization science",
+  "management science",
+  "mis quarterly",
+  "ilr review",
+  "work and occupations",
+  "new technology work and employment",
+  "harvard business review",
+  "mit sloan management review",
+  "sloan management review",
+  "hbr",
+  "california management review",
+  // Second-tier additions
+  "journal of organizational behavior",
+  "journal of applied psychology",
+  "strategic management journal",
+  "journal of management",
+  "journal of management studies",
+  "personnel psychology",
+  "human relations",
+  "british journal of industrial relations",
+  "journal of labor economics",
+  "computers in human behavior",
+  "human resource management",
+  "organizational behavior and human decision processes",
+  "academy of management perspectives",
+  "journal of occupational and organizational psychology",
+];
+
+function matchesTargetJournal(venue) {
+  if (!venue) return false;
+  const v = venue.toLowerCase();
+  return TARGET_JOURNALS.some(
+    (j) => v.includes(j) || j.includes(v.slice(0, 12))
+  );
+}
+
+// ── Practitioner journals for CrossRef ──────────────────────────
+const PRACTITIONER_JOURNALS = [
+  "harvard business review",
+  "sloan management review",
+  "mit sloan management review",
+  "california management review",
+  "hbr",
+];
+
 // ── Parse .docx using JSZip ──────────────────────────────────────
 async function parseDocxFile(file) {
   const ab = await file.arrayBuffer();
@@ -51,7 +121,7 @@ async function parseDocxFile(file) {
   return sections.filter((s) => s.paragraphs.length > 0);
 }
 
-// ── Extract text from uploaded PDF using pdf.js ──────────────────
+// ── Extract text from uploaded PDF ──────────────────────────────
 async function extractPdfText(file) {
   if (!window.pdfjsLib) {
     await new Promise((resolve, reject) => {
@@ -90,7 +160,6 @@ function fuzzyMatchSection(heading, sectionsOrder) {
   return null;
 }
 
-// ── Extract claims dynamically from uploaded doc ─────────────────
 function extractClaimsFromDoc(uploadedDoc, sectionKey, sectionsOrder) {
   if (!uploadedDoc || !uploadedDoc.sections) return null;
   for (const sec of uploadedDoc.sections) {
@@ -109,216 +178,108 @@ function extractClaimsFromDoc(uploadedDoc, sectionKey, sectionsOrder) {
   return null;
 }
 
-// ── Practitioner journals for CrossRef filtering ─────────────────
-const PRACTITIONER_JOURNALS = [
-  "harvard business review",
-  "sloan management review",
-  "mit sloan management review",
-  "california management review",
-  "hbr",
-];
-
-// ── Keywords — crossRefFlag marks keywords that also search CrossRef ─
+// ── Keywords — no aiFlag, crossRefFlag stays ─────────────────────
 const LENS_KEYWORDS = {
   structural: [
-    {
-      kw: "organizational design structure",
-      section: "§1 Grouping",
-      aiFlag: false,
-    },
+    { kw: "organizational design structure", section: "§1 Grouping" },
     {
       kw: "AI organizational design",
       section: "§1 Grouping",
-      aiFlag: true,
       crossRefFlag: true,
     },
-    {
-      kw: "matrix divisional structure",
-      section: "§1 Grouping",
-      aiFlag: false,
-    },
+    { kw: "matrix divisional structure", section: "§1 Grouping" },
     {
       kw: "hybrid work coordination",
       section: "§2 Linking",
-      aiFlag: false,
       crossRefFlag: true,
     },
-    { kw: "human-AI teaming", section: "§2 Linking", aiFlag: true },
-    { kw: "agentic AI coordination", section: "§2 Linking", aiFlag: true },
-    {
-      kw: "algorithmic management workers",
-      section: "§3 Aligning",
-      aiFlag: true,
-    },
-    { kw: "work design engagement", section: "§3 Aligning", aiFlag: false },
-    {
-      kw: "incentives performance measurement",
-      section: "§3 Aligning",
-      aiFlag: false,
-    },
-    {
-      kw: "organizational restructuring costs",
-      section: "§4 Redesign",
-      aiFlag: false,
-    },
+    { kw: "human-AI teaming", section: "§2 Linking" },
+    { kw: "agentic AI coordination", section: "§2 Linking" },
+    { kw: "algorithmic management workers", section: "§3 Aligning" },
+    { kw: "work design engagement", section: "§3 Aligning" },
+    { kw: "incentives performance measurement", section: "§3 Aligning" },
+    { kw: "organizational restructuring costs", section: "§4 Redesign" },
     {
       kw: "AI organizational change",
       section: "§4 Redesign",
-      aiFlag: true,
       crossRefFlag: true,
     },
-    {
-      kw: "self-managing organizations",
-      section: "§5 Less-hierarchical",
-      aiFlag: false,
-    },
-    {
-      kw: "flat hierarchy outcomes",
-      section: "§5 Less-hierarchical",
-      aiFlag: false,
-    },
-    {
-      kw: "platform work regulation",
-      section: "§6 Crowd-centric",
-      aiFlag: false,
-    },
-    { kw: "AI gig workers", section: "§6 Crowd-centric", aiFlag: true },
+    { kw: "self-managing organizations", section: "§5 Less-hierarchical" },
+    { kw: "flat hierarchy outcomes", section: "§5 Less-hierarchical" },
+    { kw: "platform work regulation", section: "§6 Crowd-centric" },
+    { kw: "AI gig workers", section: "§6 Crowd-centric" },
   ],
   cultural: [
-    {
-      kw: "organizational culture symbols",
-      section: "Meaning & Symbols",
-      aiFlag: false,
-    },
-    {
-      kw: "AI work meaning",
-      section: "Meaning & Symbols",
-      aiFlag: true,
-      crossRefFlag: true,
-    },
-    {
-      kw: "institutional culture change",
-      section: "Habits & History",
-      aiFlag: false,
-    },
-    { kw: "occupational identity AI", section: "Identity", aiFlag: true },
-    { kw: "workplace identity meaning", section: "Identity", aiFlag: false },
-    { kw: "gig work identity", section: "Identity", aiFlag: true },
-    { kw: "occupational subcultures", section: "Subcultures", aiFlag: false },
+    { kw: "organizational culture symbols", section: "Meaning & Symbols" },
+    { kw: "AI work meaning", section: "Meaning & Symbols", crossRefFlag: true },
+    { kw: "institutional culture change", section: "Habits & History" },
+    { kw: "occupational identity AI", section: "Identity" },
+    { kw: "workplace identity meaning", section: "Identity" },
+    { kw: "gig work identity", section: "Identity" },
+    { kw: "occupational subcultures", section: "Subcultures" },
     {
       kw: "cross-cultural team collaboration",
       section: "Cross-Cultural Dynamics",
-      aiFlag: false,
     },
-    {
-      kw: "distributed team culture",
-      section: "Cross-Cultural Dynamics",
-      aiFlag: false,
-    },
-    {
-      kw: "AI remote team dynamics",
-      section: "Cross-Cultural Dynamics",
-      aiFlag: true,
-    },
+    { kw: "distributed team culture", section: "Cross-Cultural Dynamics" },
+    { kw: "AI remote team dynamics", section: "Cross-Cultural Dynamics" },
     {
       kw: "culture control motivation",
       section: "Culture, Control & Motivation",
-      aiFlag: false,
     },
     {
       kw: "algorithmic surveillance workers",
       section: "Culture, Control & Motivation",
-      aiFlag: true,
     },
     {
       kw: "gig economy culture",
       section: "Future of Culture",
-      aiFlag: false,
       crossRefFlag: true,
     },
     {
       kw: "AI platform labor culture",
       section: "Future of Culture",
-      aiFlag: true,
       crossRefFlag: true,
     },
-    {
-      kw: "crowdwork occupational community",
-      section: "Future of Culture",
-      aiFlag: false,
-    },
+    { kw: "crowdwork occupational community", section: "Future of Culture" },
   ],
   political: [
-    {
-      kw: "positional power hierarchy",
-      section: "Positional Power",
-      aiFlag: false,
-    },
+    { kw: "positional power hierarchy", section: "Positional Power" },
     {
       kw: "AI decision authority",
       section: "Positional Power",
-      aiFlag: true,
       crossRefFlag: true,
     },
-    {
-      kw: "expertise power organizations",
-      section: "Personal Power",
-      aiFlag: false,
-    },
-    { kw: "AI expertise power shift", section: "Personal Power", aiFlag: true },
-    { kw: "network brokerage power", section: "Network Power", aiFlag: false },
-    {
-      kw: "AI network analysis organizations",
-      section: "Network Power",
-      aiFlag: true,
-    },
+    { kw: "expertise power organizations", section: "Personal Power" },
+    { kw: "AI expertise power shift", section: "Personal Power" },
+    { kw: "network brokerage power", section: "Network Power" },
+    { kw: "AI network analysis organizations", section: "Network Power" },
     {
       kw: "stakeholder interests conflict",
       section: "Interests & Stakeholders",
-      aiFlag: false,
     },
     {
       kw: "AI change resistance stakeholders",
       section: "Interests & Stakeholders",
-      aiFlag: true,
     },
-    {
-      kw: "coalition building organizations",
-      section: "Building a Network",
-      aiFlag: false,
-    },
-    {
-      kw: "stakeholder mapping influence",
-      section: "Using Power & Influence",
-      aiFlag: false,
-    },
+    { kw: "coalition building organizations", section: "Building a Network" },
+    { kw: "stakeholder mapping influence", section: "Using Power & Influence" },
     {
       kw: "AI power dynamics organizations",
       section: "Using Power & Influence",
-      aiFlag: true,
       crossRefFlag: true,
     },
     {
       kw: "worker voice social media",
       section: "Future of Organizational Power",
-      aiFlag: false,
       crossRefFlag: true,
     },
     {
       kw: "AI new power participatory",
       section: "Future of Organizational Power",
-      aiFlag: true,
     },
-    {
-      kw: "platform worker power",
-      section: "Future of Organizational Power",
-      aiFlag: false,
-    },
-    {
-      kw: "generative AI expertise power",
-      section: "Personal Power",
-      aiFlag: true,
-    },
+    { kw: "platform worker power", section: "Future of Organizational Power" },
+    { kw: "generative AI expertise power", section: "Personal Power" },
   ],
 };
 
@@ -667,6 +628,12 @@ const TYPE_TX = {
   "New example": "#085041",
   "Outdated flag": "#791F1F",
 };
+const TYPE_BORDER = {
+  "New citation": "#1D9E75",
+  "Updated claim": "#D85A30",
+  "New example": "#1D9E75",
+  "Outdated flag": "#E24B4A",
+};
 
 function normTitle(t) {
   return (t || "")
@@ -871,26 +838,19 @@ async function claudeCall(prompt, apiKey) {
   }
 }
 
-// ── Semantic Scholar search (primary) ───────────────────────────
-async function searchSemanticScholar(
-  kw,
-  section,
-  aiFlag,
-  fromYear,
-  currentYear
-) {
+// ── Semantic Scholar — journal filter applied for non-AI keywords ─
+async function searchSemanticScholar(kw, section, fromYear, currentYear) {
+  const aiRelated = isAiKeyword(kw);
   const yearRange = `${fromYear}-${currentYear}`;
-  const fields =
-    "title,authors,year,venue,abstract,isOpenAccess,openAccessPdf,externalIds";
   const url = `/api/semantic-scholar?query=${encodeURIComponent(
     kw
   )}&year=${yearRange}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Semantic Scholar ${res.status}`);
   const data = await res.json();
-  const vL = (v) => String(v || "").toLowerCase();
-  return (data.data || [])
+  const results = (data.data || [])
     .filter((p) => p.title && p.year >= fromYear && p.year <= currentYear)
+    .filter((p) => aiRelated || matchesTargetJournal(p.venue))
     .map((p, i) => {
       const authors = (p.authors || [])
         .slice(0, 3)
@@ -913,10 +873,15 @@ async function searchSemanticScholar(
         url: paperUrl,
         isOpenAccess: Boolean(p.isOpenAccess),
         isPreprint:
-          vL(p.venue).includes("arxiv") || vL(p.venue).includes("ssrn"),
+          String(p.venue || "")
+            .toLowerCase()
+            .includes("arxiv") ||
+          String(p.venue || "")
+            .toLowerCase()
+            .includes("ssrn"),
         keyword: kw,
         section,
-        aiFlag,
+        isAiRelated: aiRelated,
         annotation: null,
         dismissed: false,
         needsPDF: abstract.length < 20,
@@ -925,18 +890,15 @@ async function searchSemanticScholar(
       };
     })
     .filter((p) => p.title.length > 5);
+  return results;
 }
 
-// ── CrossRef search (practitioner journals bolt-on) ─────────────
-async function searchCrossRef(kw, section, aiFlag, fromYear, currentYear) {
+// ── CrossRef — practitioner journals only ───────────────────────
+async function searchCrossRef(kw, section, fromYear, currentYear) {
   const url = `/api/crossref?query=${encodeURIComponent(
     kw
   )}&fromYear=${fromYear}&toYear=${currentYear}`;
-  const res = await fetch(url, {
-    headers: {
-      "User-Agent": "OP-Literature-Assistant (mailto:research@mit.edu)",
-    },
-  });
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`CrossRef ${res.status}`);
   const data = await res.json();
   return (data.message?.items || [])
@@ -970,7 +932,7 @@ async function searchCrossRef(kw, section, aiFlag, fromYear, currentYear) {
         isPreprint: false,
         keyword: kw,
         section,
-        aiFlag,
+        isAiRelated: isAiKeyword(kw),
         annotation: null,
         dismissed: false,
         needsPDF: !abstract || abstract.length < 20,
@@ -982,7 +944,7 @@ async function searchCrossRef(kw, section, aiFlag, fromYear, currentYear) {
     .filter((p) => p.year >= fromYear && p.title.length > 5);
 }
 
-// ── Manual paper lookup by DOI or doi.org URL ───────────────────
+// ── Manual paper lookup by DOI ───────────────────────────────────
 async function lookupPaperByDOI(input, defaultSection) {
   const doiMatch = input.trim().match(/10\.\d{4,}[^\s]*/);
   if (!doiMatch)
@@ -1020,7 +982,7 @@ async function lookupPaperByDOI(input, defaultSection) {
     isPreprint: false,
     keyword: "manual entry",
     section: defaultSection,
-    aiFlag: false,
+    isAiRelated: false,
     annotation: null,
     dismissed: false,
     needsPDF: !abstract || abstract.length < 20,
@@ -1030,7 +992,7 @@ async function lookupPaperByDOI(input, defaultSection) {
   };
 }
 
-// ── Annotate paper — uses full PDF text if available, else abstract ─
+// ── Annotate paper ───────────────────────────────────────────────
 async function annotatePaper(
   paper,
   apiKey,
@@ -1094,10 +1056,8 @@ export default function App() {
   const [exporting, setExporting] = useState(false);
   const [uploadedDocs, setUploadedDocs] = useState({});
   const [uploading, setUploading] = useState(false);
-  // Per-paper PDF state (in-memory only — not persisted)
   const [paperPdfs, setPaperPdfs] = useState({});
   const [uploadingPdfForPaper, setUploadingPdfForPaper] = useState(null);
-  // Manual add paper
   const [showAddPaper, setShowAddPaper] = useState(false);
   const [addPaperInput, setAddPaperInput] = useState("");
   const [addingPaper, setAddingPaper] = useState(false);
@@ -1279,7 +1239,6 @@ export default function App() {
     [editCommentText, persist]
   );
 
-  // ── Doc upload (whole reading) ───────────────────────────────
   const handleUpload = useCallback(
     async (e) => {
       const file = e.target.files[0];
@@ -1317,7 +1276,6 @@ export default function App() {
     lsSet(`op_uploaded_${activeLens}`, "");
   }, [activeLens, uploadedDocs]);
 
-  // ── Per-paper PDF upload ─────────────────────────────────────
   const handlePaperPdfUpload = useCallback(
     async (e) => {
       const file = e.target.files[0];
@@ -1344,7 +1302,6 @@ export default function App() {
     [uploadingPdfForPaper, persist]
   );
 
-  // ── Manual paper add ─────────────────────────────────────────
   const handleManualAdd = useCallback(async () => {
     if (!addPaperInput.trim()) return;
     setAddingPaper(true);
@@ -1381,7 +1338,6 @@ export default function App() {
       ? `published in ${fromYear}`
       : `published between ${fromYear} and ${currentYear}`;
 
-  // ── Scan — uses Semantic Scholar + CrossRef, no API key needed ─
   const runScan = useCallback(async () => {
     setScanning(true);
     setResults([]);
@@ -1404,24 +1360,16 @@ export default function App() {
         errors: errs,
       });
       const [ssResults, crResults] = await Promise.all([
-        searchSemanticScholar(
-          kw.kw,
-          kw.section,
-          kw.aiFlag,
-          fromYear,
-          currentYear
-        ).catch((e) => {
-          errs = [...errs, { kw: kw.kw, err: e.message }];
-          return [];
-        }),
+        searchSemanticScholar(kw.kw, kw.section, fromYear, currentYear).catch(
+          (e) => {
+            errs = [...errs, { kw: kw.kw, err: e.message }];
+            return [];
+          }
+        ),
         kw.crossRefFlag
-          ? searchCrossRef(
-              kw.kw,
-              kw.section,
-              kw.aiFlag,
-              fromYear,
-              currentYear
-            ).catch(() => [])
+          ? searchCrossRef(kw.kw, kw.section, fromYear, currentYear).catch(
+              () => []
+            )
           : Promise.resolve([]),
       ]);
       all = [...all, ...ssResults, ...crResults];
@@ -1457,7 +1405,6 @@ export default function App() {
     lsSet("op_activelens", activeLens);
   }, [fromDate, KEYWORDS, fromYear, currentYear, persist, activeLens]);
 
-  // ── Annotate selected papers ─────────────────────────────────
   const runAnnotations = useCallback(async () => {
     if (!apiKey) {
       setShowApiInput(true);
@@ -1543,7 +1490,7 @@ export default function App() {
     : results.filter((p) => !p.annotation && !p.dismissed);
   const filtered = queuePapers.filter((p) => {
     if (yearFilter !== "All" && String(p.year) !== yearFilter) return false;
-    if (aiOnly && !p.aiFlag) return false;
+    if (aiOnly && !p.isAiRelated) return false;
     return true;
   });
   const unannotatedIds = queuePapers
@@ -2017,7 +1964,6 @@ export default function App() {
         )}
       </div>
 
-      {/* Hidden PDF input for per-paper upload */}
       <input
         ref={pdfFileInputRef}
         type="file"
@@ -2168,8 +2114,7 @@ export default function App() {
             />
           </div>
           <p style={{ fontSize: 12, color: "#534AB7", margin: "8px 0 0" }}>
-            {annoProgress.done} of {annoProgress.total} papers evaluated —
-            results appear in document editor
+            {annoProgress.done} of {annoProgress.total} papers evaluated
           </p>
         </div>
       )}
@@ -2289,7 +2234,7 @@ export default function App() {
                     fontWeight: aiOnly ? 500 : 400,
                   }}
                 >
-                  AI-flag only
+                  AI-related only
                 </button>
                 <span
                   style={{ fontSize: 12, color: "#9CA3AF", margin: "0 4px" }}
@@ -2318,9 +2263,9 @@ export default function App() {
               </div>
               <p style={{ fontSize: 12, color: "#9CA3AF", margin: "0 0 10px" }}>
                 {filtered.length} paper{filtered.length !== 1 ? "s" : ""} shown
-                · annotations are based on abstracts
+                · annotations based on abstracts
                 {Object.keys(paperPdfs).length > 0
-                  ? ` (${Object.keys(paperPdfs).length} with PDF uploaded)`
+                  ? ` (${Object.keys(paperPdfs).length} with PDF)`
                   : ""}
               </p>
             </>
@@ -2374,7 +2319,7 @@ export default function App() {
                       alignItems: "center",
                     }}
                   >
-                    {p.aiFlag && (
+                    {p.isAiRelated && (
                       <span
                         style={{
                           fontSize: 11,
@@ -2386,7 +2331,7 @@ export default function App() {
                           border: "0.5px solid #CECBF6",
                         }}
                       >
-                        AI-flag
+                        AI-related
                       </span>
                     )}
                     <span
@@ -2452,7 +2397,7 @@ export default function App() {
                           border: "0.5px solid #FAC775",
                         }}
                       >
-                        No abstract · upload PDF to annotate
+                        No abstract · upload PDF
                       </span>
                     )}
                     {hasPdfText && (
@@ -2686,7 +2631,7 @@ export default function App() {
             <div>
               <p style={{ fontSize: 13, color: "#6B7280", margin: 0 }}>
                 {inDoc.length} annotation{inDoc.length !== 1 ? "s" : ""} — click
-                a marker or comment to review
+                an insertion or card to highlight both
               </p>
               {uploadedDoc && (
                 <p
@@ -2749,11 +2694,12 @@ export default function App() {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "1fr 320px",
+                gridTemplateColumns: "1fr 300px",
                 gap: 16,
                 alignItems: "start",
               }}
             >
+              {/* Document body */}
               <div
                 style={{
                   background: "#FFFFFF",
@@ -2807,46 +2753,104 @@ export default function App() {
                           + {sec.paragraphs.length - 3} more paragraphs
                         </p>
                       )}
-                      {secAnnos.map((p) => (
-                        <div key={p.id} style={{ margin: "4px 0 8px" }}>
-                          <span
+                      {/* Inline tracked-change blocks */}
+                      {secAnnos.map((p) => {
+                        const anno = p.annotation;
+                        const isActive = activeComment === p.id;
+                        const borderColor =
+                          TYPE_BORDER[anno?.type] || "#1D9E75";
+                        const bgColor = isActive
+                          ? TYPE_BG[anno?.type] || "#E1F5EE"
+                          : "#F9FAFB";
+                        return (
+                          <div
+                            key={p.id}
                             onClick={() =>
                               setActiveComment(
                                 activeComment === p.id ? null : p.id
                               )
                             }
                             style={{
-                              display: "inline-block",
-                              fontSize: 12,
-                              padding: "3px 10px",
-                              borderRadius: 4,
+                              borderLeft: `3px solid ${borderColor}`,
+                              background: bgColor,
+                              padding: "8px 12px",
+                              marginBottom: 10,
                               cursor: "pointer",
-                              background:
-                                activeComment === p.id
-                                  ? TYPE_BG[p.annotation?.type] || "#E6F1FB"
-                                  : "#F3F4F6",
-                              color:
-                                activeComment === p.id
-                                  ? TYPE_TX[p.annotation?.type] || "#0C447C"
-                                  : "#6B7280",
-                              border: `0.5px solid ${
-                                activeComment === p.id ? "#D1D5DB" : "#E5E7EB"
-                              }`,
-                              transition: "all 0.15s",
+                              transition: "background 0.15s",
+                              borderRadius: "0 4px 4px 0",
                             }}
                           >
-                            ▶ {p.authors.split(",")[0]} et al. {p.year} —{" "}
-                            {p.annotation?.type}
-                          </span>
-                        </div>
-                      ))}
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: 8,
+                                alignItems: "center",
+                                marginBottom: 4,
+                              }}
+                            >
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 500,
+                                  color: TYPE_TX[anno?.type] || "#085041",
+                                }}
+                              >
+                                + {anno?.type || "Annotation"}
+                              </span>
+                              <span style={{ fontSize: 11, color: "#9CA3AF" }}>
+                                ·
+                              </span>
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  color: "#6B7280",
+                                  fontWeight: 500,
+                                }}
+                              >
+                                {p.title.length > 50
+                                  ? p.title.slice(0, 50) + "…"
+                                  : p.title}
+                              </span>
+                            </div>
+                            <p
+                              style={{
+                                fontSize: 13,
+                                lineHeight: 1.7,
+                                margin: "0 0 4px",
+                                color: "#111827",
+                              }}
+                            >
+                              {anno?.annotation}
+                            </p>
+                            <p
+                              style={{
+                                fontSize: 11,
+                                color: "#6B7280",
+                                margin: 0,
+                              }}
+                            >
+                              {p.authors}
+                              {p.venue ? ` · ${p.venue}` : ""} · {p.year}
+                            </p>
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })}
               </div>
 
+              {/* Sticky sidebar */}
               <div
-                style={{ display: "flex", flexDirection: "column", gap: 10 }}
+                style={{
+                  position: "sticky",
+                  top: "1rem",
+                  maxHeight: "calc(100vh - 2rem)",
+                  overflowY: "auto",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                }}
               >
                 {inDoc.map((p) => {
                   const isActive = activeComment === p.id,
@@ -2874,7 +2878,7 @@ export default function App() {
                           display: "flex",
                           gap: 6,
                           flexWrap: "wrap",
-                          marginBottom: 6,
+                          marginBottom: 4,
                           alignItems: "center",
                         }}
                       >
@@ -2891,7 +2895,7 @@ export default function App() {
                             {anno.type}
                           </span>
                         )}
-                        {p.aiFlag && (
+                        {p.isAiRelated && (
                           <span
                             style={{
                               fontSize: 10,
@@ -2903,20 +2907,7 @@ export default function App() {
                               border: "0.5px solid #CECBF6",
                             }}
                           >
-                            AI-flag
-                          </span>
-                        )}
-                        {p.isPreprint && (
-                          <span
-                            style={{
-                              fontSize: 10,
-                              padding: "2px 7px",
-                              borderRadius: 4,
-                              background: "#F9FAFB",
-                              color: "#6B7280",
-                            }}
-                          >
-                            Preprint
+                            AI
                           </span>
                         )}
                         {paperPdfs[p.id] && (
@@ -2944,23 +2935,25 @@ export default function App() {
                           </span>
                         )}
                       </div>
+                      {/* Clear source attribution */}
                       <p
                         style={{
                           fontSize: 12,
                           fontWeight: 500,
-                          margin: "0 0 2px",
+                          margin: "0 0 1px",
                           lineHeight: 1.4,
+                          color: "#111827",
                         }}
                       >
-                        {p.title.length > 60
-                          ? p.title.slice(0, 60) + "..."
+                        {p.title.length > 55
+                          ? p.title.slice(0, 55) + "..."
                           : p.title}
                       </p>
                       <p
                         style={{
                           fontSize: 11,
                           color: "#6B7280",
-                          margin: "0 0 8px",
+                          margin: "0 0 6px",
                         }}
                       >
                         {p.authors}
@@ -2977,8 +2970,8 @@ export default function App() {
                           }}
                         >
                           Updates: "
-                          {anno.claim.length > 80
-                            ? anno.claim.slice(0, 80) + "..."
+                          {anno.claim.length > 70
+                            ? anno.claim.slice(0, 70) + "..."
                             : anno.claim}
                           "
                         </p>
@@ -2986,11 +2979,12 @@ export default function App() {
                       <div
                         style={{
                           background: "#F9FAFB",
-                          padding: "8px 10px",
+                          padding: "6px 10px",
                           borderLeft: `3px solid ${
-                            TYPE_TX[anno?.type] || "#D1D5DB"
+                            TYPE_BORDER[anno?.type] || "#D1D5DB"
                           }`,
                           marginBottom: 8,
+                          borderRadius: "0 4px 4px 0",
                         }}
                       >
                         {isEditC ? (
