@@ -75,6 +75,99 @@ function matchesTargetJournal(venue) {
   );
 }
 
+// ── Off-topic journal blocklist (applied to all keywords) ────────
+const EXCLUDED_JOURNAL_TERMS = [
+  // Medical / health
+  "bmj",
+  "lancet",
+  "jama",
+  "new england journal of medicine",
+  "plos medicine",
+  "plos one",
+  "plos biology",
+  "global health",
+  "clinical",
+  "medical journal",
+  "public health",
+  "epidemiology",
+  "nursing",
+  "pharmacy",
+  "oncology",
+  "radiology",
+  "psychiatry",
+  "neurology",
+  "cardiology",
+  "pediatrics",
+  "surgery",
+  "annals of medicine",
+  // Natural sciences
+  "physical review",
+  "journal of physics",
+  "journal of chemistry",
+  "journal of biology",
+  "bioinformatics",
+  "genomics",
+  "ecology letters",
+  "geophysics",
+  "astrophysics",
+  "crystallography",
+  // Engineering (specific — avoids blocking IS/tech management journals)
+  "ieee transactions",
+  "acm transactions on",
+  "mechanical engineering",
+  "electrical engineering",
+  "chemical engineering",
+  "civil engineering",
+  "robotics",
+  "signal processing",
+];
+
+// ── OB topic signals (required for AI keyword results) ───────────
+const OB_TOPIC_SIGNALS = [
+  "organiz",
+  "work",
+  "workplace",
+  "firm",
+  "manag",
+  "employ",
+  "labor",
+  "labour",
+  "team",
+  "leadership",
+  "power",
+  "cultur",
+  "institution",
+  "hierarch",
+  "coordinat",
+  "collaborat",
+  "strateg",
+  "human resource",
+  "talent",
+  "profession",
+  "career",
+  "job",
+  "corporate",
+  "business",
+  "enterprise",
+  "executive",
+  "worker",
+  "gig",
+  "platform",
+  "crowd",
+  "algorith",
+];
+
+function isExcludedJournal(venue) {
+  if (!venue) return false;
+  const v = venue.toLowerCase();
+  return EXCLUDED_JOURNAL_TERMS.some((t) => v.includes(t));
+}
+
+function hasOBTopicSignal(paper) {
+  const text = (paper.title + " " + (paper.abstract || "")).toLowerCase();
+  return OB_TOPIC_SIGNALS.some((s) => text.includes(s));
+}
+
 // ── Practitioner journals for CrossRef ──────────────────────────
 const PRACTITIONER_JOURNALS = [
   "harvard business review",
@@ -850,7 +943,10 @@ async function searchSemanticScholar(kw, section, fromYear, currentYear) {
   const data = await res.json();
   const results = (data.data || [])
     .filter((p) => p.title && p.year >= fromYear && p.year <= currentYear)
-    .filter((p) => aiRelated || matchesTargetJournal(p.venue))
+    .filter((p) => !isExcludedJournal(p.venue))
+    .filter((p) =>
+      aiRelated ? hasOBTopicSignal(p) : matchesTargetJournal(p.venue)
+    )
     .map((p, i) => {
       const authors = (p.authors || [])
         .slice(0, 3)
@@ -1373,7 +1469,7 @@ export default function App() {
           : Promise.resolve([]),
       ]);
       all = [...all, ...ssResults, ...crResults];
-      await new Promise((r) => setTimeout(r, 300));
+      await new Promise((r) => setTimeout(r, 2000));
     }
     const seen = new Set(),
       deduped = [];
