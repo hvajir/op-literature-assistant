@@ -510,111 +510,159 @@ function extractClaimsFromDoc(uploadedDoc, sectionKey, sectionsOrder) {
   return null;
 }
 
-// ── Keywords — no aiFlag, crossRefFlag stays ─────────────────────
+// ── Keywords — 18 per lens, tested against OpenAlex Jan 2026 ─────
 const LENS_KEYWORDS = {
   structural: [
-    { kw: "organizational design structure", section: "§1 Grouping" },
+    // §1 Grouping
+    { kw: "divisional organization firm performance", section: "§1 Grouping" },
+    { kw: "matrix organization management challenges", section: "§1 Grouping" },
+    { kw: "generative AI organizational structure", section: "§1 Grouping" },
+    // §2 Linking
+    { kw: "boundary spanning teams organizations", section: "§2 Linking" },
+    { kw: "cross-functional coordination management", section: "§2 Linking" },
+    { kw: "human-AI collaboration performance", section: "§2 Linking" },
+    // §3 Aligning
+    { kw: "job design autonomy employee engagement", section: "§3 Aligning" },
+    { kw: "incentive pay performance management", section: "§3 Aligning" },
+    { kw: "algorithmic management employee fairness", section: "§3 Aligning" },
+    // §4 Redesign
+    { kw: "organizational redesign employee stress", section: "§4 Redesign" },
+    { kw: "organizational change strategic fit", section: "§4 Redesign" },
+    { kw: "AI organizational restructuring", section: "§4 Redesign" },
+    // §5 Less-hierarchical
     {
-      kw: "AI organizational design",
-      section: "§1 Grouping",
-      crossRefFlag: true,
+      kw: "self-managing teams effectiveness",
+      section: "§5 Less-hierarchical",
     },
-    { kw: "matrix divisional structure", section: "§1 Grouping" },
     {
-      kw: "hybrid work coordination",
-      section: "§2 Linking",
-      crossRefFlag: true,
+      kw: "holacracy decentralized organizations",
+      section: "§5 Less-hierarchical",
     },
-    { kw: "human-AI teaming", section: "§2 Linking" },
-    { kw: "agentic AI coordination", section: "§2 Linking" },
-    { kw: "algorithmic management workers", section: "§3 Aligning" },
-    { kw: "work design engagement", section: "§3 Aligning" },
-    { kw: "incentives performance measurement", section: "§3 Aligning" },
-    { kw: "organizational restructuring costs", section: "§4 Redesign" },
     {
-      kw: "AI organizational change",
-      section: "§4 Redesign",
-      crossRefFlag: true,
+      kw: "AI autonomous team decision-making",
+      section: "§5 Less-hierarchical",
     },
-    { kw: "self-managing organizations", section: "§5 Less-hierarchical" },
-    { kw: "flat hierarchy outcomes", section: "§5 Less-hierarchical" },
-    { kw: "platform work regulation", section: "§6 Crowd-centric" },
-    { kw: "AI gig workers", section: "§6 Crowd-centric" },
+    // §6 Crowd-centric
+    { kw: "platform work employment regulation", section: "§6 Crowd-centric" },
+    { kw: "crowdwork organization complex tasks", section: "§6 Crowd-centric" },
+    { kw: "algorithmic gig platform management", section: "§6 Crowd-centric" },
   ],
   cultural: [
-    { kw: "organizational culture symbols", section: "Meaning & Symbols" },
-    { kw: "AI work meaning", section: "Meaning & Symbols", crossRefFlag: true },
-    { kw: "institutional culture change", section: "Habits & History" },
-    { kw: "occupational identity AI", section: "Identity" },
-    { kw: "workplace identity meaning", section: "Identity" },
-    { kw: "gig work identity", section: "Identity" },
-    { kw: "occupational subcultures", section: "Subcultures" },
+    // Meaning & Symbols
     {
-      kw: "cross-cultural team collaboration",
+      kw: "organizational symbolism employee behavior",
+      section: "Meaning & Symbols",
+    },
+    { kw: "AI automation work meaningfulness", section: "Meaning & Symbols" },
+    // Habits & History
+    {
+      kw: "organizational inertia institutional change",
+      section: "Habits & History",
+    },
+    { kw: "AI cultural change resistance", section: "Habits & History" },
+    // Identity
+    { kw: "professional identity work role", section: "Identity" },
+    { kw: "gig work identity precarious", section: "Identity" },
+    { kw: "AI occupational identity threat", section: "Identity" },
+    // Subcultures
+    { kw: "occupational subculture collaboration", section: "Subcultures" },
+    { kw: "AI adoption organizational subcultures", section: "Subcultures" },
+    // Cross-Cultural Dynamics
+    {
+      kw: "cross-cultural team performance management",
       section: "Cross-Cultural Dynamics",
     },
-    { kw: "distributed team culture", section: "Cross-Cultural Dynamics" },
+    { kw: "global virtual team identity", section: "Cross-Cultural Dynamics" },
     {
-      kw: "AI virtual teams organizational management",
+      kw: "AI translation cross-cultural teams",
       section: "Cross-Cultural Dynamics",
     },
+    // Culture, Control & Motivation
     {
-      kw: "culture control motivation",
+      kw: "privacy transparency employee performance",
       section: "Culture, Control & Motivation",
     },
     {
-      kw: "algorithmic surveillance workers",
+      kw: "concertive control self-managing teams",
       section: "Culture, Control & Motivation",
     },
     {
-      kw: "gig economy culture",
-      section: "Future of Culture",
-      crossRefFlag: true,
+      kw: "algorithmic surveillance worker control",
+      section: "Culture, Control & Motivation",
     },
+    // Future of Culture
+    { kw: "crowdwork labor conditions platform", section: "Future of Culture" },
+    { kw: "AI ghost work platform", section: "Future of Culture" },
     {
-      kw: "algorithmic platform labor management",
-      section: "Future of Culture",
-      crossRefFlag: true,
+      kw: "culture motivation employee socialization",
+      section: "Culture, Control & Motivation",
     },
-    { kw: "crowdwork occupational community", section: "Future of Culture" },
   ],
   political: [
-    { kw: "positional power hierarchy", section: "Positional Power" },
+    // Positional Power
     {
-      kw: "AI decision authority",
+      kw: "managerial authority coercion resistance",
       section: "Positional Power",
-      crossRefFlag: true,
     },
-    { kw: "expertise power organizations", section: "Personal Power" },
-    { kw: "AI expertise power shift", section: "Personal Power" },
-    { kw: "network brokerage power", section: "Network Power" },
-    { kw: "AI network analysis organizations", section: "Network Power" },
     {
-      kw: "stakeholder interests conflict",
+      kw: "algorithmic management workplace authority",
+      section: "Positional Power",
+    },
+    // Personal Power
+    {
+      kw: "data analytics organizational decision-making",
+      section: "Personal Power",
+    },
+    { kw: "expert power organizational influence", section: "Personal Power" },
+    { kw: "generative AI expertise redistribution", section: "Personal Power" },
+    // Network Power
+    { kw: "network brokerage structural holes", section: "Network Power" },
+    {
+      kw: "organizational social networks brokerage",
+      section: "Network Power",
+    },
+    { kw: "AI social network workplace", section: "Network Power" },
+    // Interests & Stakeholders
+    {
+      kw: "stakeholder management organizational change",
       section: "Interests & Stakeholders",
     },
     {
-      kw: "AI change resistance stakeholders",
+      kw: "worker AI resistance organizations",
       section: "Interests & Stakeholders",
     },
-    { kw: "coalition building organizations", section: "Building a Network" },
-    { kw: "stakeholder mapping influence", section: "Using Power & Influence" },
+    // Building a Network
     {
-      kw: "AI power dynamics organizations",
+      kw: "developmental network mentoring sponsorship",
+      section: "Building a Network",
+    },
+    {
+      kw: "network reciprocity trust organizations",
+      section: "Building a Network",
+    },
+    { kw: "AI career professional development", section: "Building a Network" },
+    // Using Power & Influence
+    {
+      kw: "stakeholder mapping organizational change",
       section: "Using Power & Influence",
-      crossRefFlag: true,
     },
     {
-      kw: "worker voice social media",
+      kw: "AI adoption resistance organizations",
+      section: "Using Power & Influence",
+    },
+    // Future of Organizational Power
+    {
+      kw: "digital platform worker voice",
       section: "Future of Organizational Power",
-      crossRefFlag: true,
     },
     {
-      kw: "AI new power participatory",
+      kw: "gig worker collective action power",
       section: "Future of Organizational Power",
     },
-    { kw: "platform worker power", section: "Future of Organizational Power" },
-    { kw: "generative AI expertise power", section: "Personal Power" },
+    {
+      kw: "AI worker power governance",
+      section: "Future of Organizational Power",
+    },
   ],
 };
 
