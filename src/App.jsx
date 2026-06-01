@@ -1174,12 +1174,19 @@ async function claudeCall(prompt, apiKey) {
 }
 
 // ── Semantic Scholar — journal filter applied for non-AI keywords ─
-async function searchSemanticScholar(kw, section, fromYear, currentYear) {
+async function searchSemanticScholar(
+  kw,
+  section,
+  fromYear,
+  currentYear,
+  ssApiKey = ""
+) {
   const aiRelated = isAiKeyword(kw);
   const yearRange = `${fromYear}-${currentYear}`;
+  const keyParam = ssApiKey ? `&apiKey=${encodeURIComponent(ssApiKey)}` : "";
   const url = `/api/semantic-scholar?query=${encodeURIComponent(
     kw
-  )}&year=${yearRange}`;
+  )}&year=${yearRange}${keyParam}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Semantic Scholar ${res.status}`);
   const data = await res.json();
@@ -1439,6 +1446,7 @@ const defaultFromDate = () => {
 
 export default function App() {
   const [apiKey, setApiKey] = useState("");
+  const [ssApiKey, setSsApiKey] = useState("");
   const [showApiInput, setShowApiInput] = useState(false);
   const [activeLens, setActiveLens] = useState("structural");
   const [results, setResults] = useState([]);
@@ -1484,6 +1492,8 @@ export default function App() {
   useEffect(() => {
     const k = lsGet("op_apikey");
     if (k) setApiKey(k);
+    const sk = lsGet("op_ss_apikey");
+    if (sk) setSsApiKey(sk);
     const lens = lsGet("op_activelens");
     if (lens) setActiveLens(lens);
     const fd = lsGet("op_fromdate");
@@ -1770,12 +1780,16 @@ export default function App() {
         errors: errs,
       });
       const [ssResults, crResults, oaResults] = await Promise.all([
-        searchSemanticScholar(kw.kw, kw.section, fromYear, currentYear).catch(
-          (e) => {
-            errs = [...errs, { kw: kw.kw, err: e.message }];
-            return [];
-          }
-        ),
+        searchSemanticScholar(
+          kw.kw,
+          kw.section,
+          fromYear,
+          currentYear,
+          ssApiKey
+        ).catch((e) => {
+          errs = [...errs, { kw: kw.kw, err: e.message }];
+          return [];
+        }),
         kw.crossRefFlag
           ? searchCrossRef(kw.kw, kw.section, fromYear, currentYear).catch(
               () => []
@@ -1786,7 +1800,7 @@ export default function App() {
         ),
       ]);
       all = [...all, ...ssResults, ...crResults, ...oaResults];
-      await new Promise((r) => setTimeout(r, 2000));
+      await new Promise((r) => setTimeout(r, 1000)); // 1s delay — safe with authenticated SS key
     }
     const seen = new Set(),
       deduped = [];
@@ -2036,6 +2050,20 @@ export default function App() {
           >
             {apiKey ? "API key set ✓" : "Set API key"}
           </button>
+          <button
+            onClick={() => setShowApiInput(!showApiInput)}
+            style={{
+              fontSize: 12,
+              padding: "5px 12px",
+              borderRadius: 6,
+              border: "0.5px solid #D1D5DB",
+              background: ssApiKey ? "#E1F5EE" : "#FEF9E7",
+              color: ssApiKey ? "#085041" : "#633806",
+              cursor: "pointer",
+            }}
+          >
+            {ssApiKey ? "SS key set ✓" : "Set SS key"}
+          </button>
           {results.length > 0 && !scanning && (
             <button
               onClick={clearResults}
@@ -2071,46 +2099,92 @@ export default function App() {
             borderRadius: 10,
           }}
         >
-          <p style={{ fontSize: 13, fontWeight: 500, margin: "0 0 4px" }}>
-            Anthropic API key
-          </p>
-          <p style={{ fontSize: 12, color: "#6B7280", margin: "0 0 8px" }}>
-            Used for generating annotations only. Scanning uses free public
-            APIs. Get one at console.anthropic.com.
-          </p>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-ant-..."
-              style={{
-                flex: 1,
-                fontSize: 13,
-                padding: "6px 10px",
-                borderRadius: 6,
-                border: "0.5px solid #D1D5DB",
-                background: "#FFFFFF",
-                color: "#111827",
-              }}
-            />
-            <button
-              onClick={() => {
-                lsSet("op_apikey", apiKey);
-                setShowApiInput(false);
-              }}
-              style={{
-                fontSize: 12,
-                padding: "6px 14px",
-                borderRadius: 6,
-                border: "0.5px solid #9FE1CB",
-                background: "#E1F5EE",
-                color: "#085041",
-                cursor: "pointer",
-              }}
-            >
-              Save
-            </button>
+          <div style={{ marginBottom: "0.75rem" }}>
+            <p style={{ fontSize: 13, fontWeight: 500, margin: "0 0 2px" }}>
+              Anthropic API key
+            </p>
+            <p style={{ fontSize: 12, color: "#6B7280", margin: "0 0 8px" }}>
+              Used for generating annotations. Get one at console.anthropic.com.
+            </p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="sk-ant-..."
+                style={{
+                  flex: 1,
+                  fontSize: 13,
+                  padding: "6px 10px",
+                  borderRadius: 6,
+                  border: "0.5px solid #D1D5DB",
+                  background: "#FFFFFF",
+                  color: "#111827",
+                }}
+              />
+              <button
+                onClick={() => {
+                  lsSet("op_apikey", apiKey);
+                  setShowApiInput(false);
+                }}
+                style={{
+                  fontSize: 12,
+                  padding: "6px 14px",
+                  borderRadius: 6,
+                  border: "0.5px solid #9FE1CB",
+                  background: "#E1F5EE",
+                  color: "#085041",
+                  cursor: "pointer",
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+          <div>
+            <p style={{ fontSize: 13, fontWeight: 500, margin: "0 0 2px" }}>
+              Semantic Scholar API key
+            </p>
+            <p style={{ fontSize: 12, color: "#6B7280", margin: "0 0 8px" }}>
+              Used for scanning. Shared key — ask your administrator.{" "}
+              <span style={{ color: "#633806" }}>
+                Deactivates after 60 days of no use.
+              </span>
+            </p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                type="password"
+                value={ssApiKey}
+                onChange={(e) => setSsApiKey(e.target.value)}
+                placeholder="Paste SS API key..."
+                style={{
+                  flex: 1,
+                  fontSize: 13,
+                  padding: "6px 10px",
+                  borderRadius: 6,
+                  border: "0.5px solid #D1D5DB",
+                  background: "#FFFFFF",
+                  color: "#111827",
+                }}
+              />
+              <button
+                onClick={() => {
+                  lsSet("op_ss_apikey", ssApiKey);
+                  setShowApiInput(false);
+                }}
+                style={{
+                  fontSize: 12,
+                  padding: "6px 14px",
+                  borderRadius: 6,
+                  border: "0.5px solid #9FE1CB",
+                  background: "#E1F5EE",
+                  color: "#085041",
+                  cursor: "pointer",
+                }}
+              >
+                Save
+              </button>
+            </div>
           </div>
         </div>
       )}
