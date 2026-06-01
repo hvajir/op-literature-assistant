@@ -4,7 +4,7 @@ export default async function handler(req, res) {
     "title,authors,year,venue,abstract,isOpenAccess,openAccessPdf,externalIds";
   const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(
     query
-  )}&fields=${fields}&limit=8&year=${year}`;
+  )}&fields=${fields}&limit=10&year=${year}`;
 
   const headers = { "Content-Type": "application/json" };
   if (apiKey) headers["x-api-key"] = apiKey;
